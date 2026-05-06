@@ -111,6 +111,7 @@ describe('studioImageGenerationService', () => {
     expect(createDrawTaskDependency.mock.calls[0][0].urls).toHaveLength(1)
     expect(result.comparisonResults).toHaveLength(1)
     expect(result.comparisonResults[0].title).toBe('nano-banana-fast 设计结果')
+    expect(result.comparisonResults[0].promptFinal).toBe('参考原图生成更强卖点表达的商品图\n强化光泽和层次感')
   })
 
   it('maps single-design preset size labels to supported remote aspect ratios', async () => {
@@ -171,7 +172,10 @@ describe('studioImageGenerationService', () => {
             path: 'C:/input/look-1.png',
             selected: true,
             prompt: '突出产品主视觉效果',
-            imageType: '商品主图'
+            imageType: '商品主图',
+            size: '4:3',
+            model: 'nano-banana-fast',
+            tagNames: ['高清', '白底']
           },
           {
             id: 'image-2',
@@ -202,6 +206,7 @@ describe('studioImageGenerationService', () => {
       draft: {
         model: 'gpt-image-2',
         globalPrompt: '统一高级电商视觉风格',
+        negativePrompt: '水印，logo，文字，低清像素',
         batchCount: 2,
         size: '1:1',
         imageAssignments: [
@@ -211,7 +216,10 @@ describe('studioImageGenerationService', () => {
             path: 'C:/input/look-1.png',
             selected: true,
             prompt: '突出产品主视觉效果',
-            imageType: '商品主图'
+            imageType: '商品主图',
+            size: '4:3',
+            model: 'nano-banana-fast',
+            tagNames: ['高清', '白底']
           },
           {
             id: 'image-2',
@@ -227,22 +235,32 @@ describe('studioImageGenerationService', () => {
             path: 'C:/input/look-3.png',
             selected: true,
             prompt: '重点展示局部材质与纹理',
-            imageType: '细节图'
+            imageType: '细节图',
+            size: 'a4-portrait',
+            model: 'gpt-image-2',
+            tagNames: ['细节特写']
           }
         ]
       }
     })
 
     expect(createDrawTaskDependency).toHaveBeenCalledTimes(4)
+    expect(createDrawTaskDependency.mock.calls[0][0].model).toBe('nano-banana-fast')
+    expect(createDrawTaskDependency.mock.calls[0][0].aspectRatio).toBe('4:3')
+    expect(createDrawTaskDependency.mock.calls[1][0].model).toBe('gpt-image-2')
+    expect(createDrawTaskDependency.mock.calls[1][0].aspectRatio).toBe('3:4')
     expect(createDrawTaskDependency.mock.calls.map((call) => call[0].prompt)).toEqual([
-      '统一高级电商视觉风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出产品主视觉效果',
-      '统一高级电商视觉风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n重点展示局部材质与纹理',
-      '统一高级电商视觉风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出产品主视觉效果',
-      '统一高级电商视觉风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n重点展示局部材质与纹理'
+      '统一高级电商视觉风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n高清\n白底\n突出产品主视觉效果\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商视觉风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n细节特写\n重点展示局部材质与纹理\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商视觉风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n高清\n白底\n突出产品主视觉效果\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商视觉风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n细节特写\n重点展示局部材质与纹理\n\n严格避免以下问题：水印，logo，文字，低清像素'
     ])
     expect(result.groupedResults).toHaveLength(2)
     expect(result.groupedResults[0].outputs).toHaveLength(3)
     expect(result.groupedResults[0].outputs[0].title).toBe('主图0')
+    expect(result.groupedResults[0].outputs[0].promptFinal).toBe(
+      '统一高级电商视觉风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n高清\n白底\n突出产品主视觉效果\n\n严格避免以下问题：水印，logo，文字，低清像素'
+    )
     expect(result.groupedResults[0].outputs[1].title).toBe('look-2.png')
     expect(result.groupedResults[0].outputs[2].title).toBe('细节图0')
     expect(result.summary.title).toBe('套图设计 2 组')
@@ -296,7 +314,10 @@ describe('studioImageGenerationService', () => {
             path: 'C:/input/look-1.png',
             selected: true,
             prompt: '突出产品主视觉效果',
-            imageType: '商品主图'
+            imageType: '商品主图',
+            size: '4:3',
+            model: 'nano-banana-fast',
+            tagNames: ['高清', '白底']
           },
           {
             id: 'image-2',
@@ -312,7 +333,10 @@ describe('studioImageGenerationService', () => {
             path: 'C:/input/look-3.png',
             selected: true,
             prompt: '重点展示局部材质与纹理',
-            imageType: '细节图'
+            imageType: '细节图',
+            size: 'a4-portrait',
+            model: 'gpt-image-2',
+            tagNames: ['细节特写']
           }
         ]
       }
@@ -328,7 +352,7 @@ describe('studioImageGenerationService', () => {
     expect(result.groupedResults[0].outputs[0]).toMatchObject({
       title: '主图0',
       sourceTag: 'generated',
-      model: 'gpt-image-2'
+      model: 'nano-banana-fast'
     })
     expect(result.groupedResults[0].outputs[1]).toMatchObject({
       title: 'look-2.png',
@@ -456,6 +480,7 @@ describe('studioImageGenerationService', () => {
           path: 'C:/input/main.png'
         },
         globalPrompt: '统一高级电商详情页风格',
+        negativePrompt: '水印，logo，文字，低清像素',
         generateCount: 3,
         batchCount: 2,
         promptAssignments: [
@@ -469,16 +494,19 @@ describe('studioImageGenerationService', () => {
 
     expect(createDrawTaskDependency).toHaveBeenCalledTimes(6)
     expect(createDrawTaskDependency.mock.calls.map((call) => call[0].prompt)).toEqual([
-      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出产品整体外观和电商氛围',
-      '统一高级电商详情页风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n重点展示材质和纹理',
-      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n提供另一个主视觉构图',
-      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出产品整体外观和电商氛围',
-      '统一高级电商详情页风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n重点展示材质和纹理',
-      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n提供另一个主视觉构图'
+      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出产品整体外观和电商氛围\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商详情页风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n重点展示材质和纹理\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n提供另一个主视觉构图\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出产品整体外观和电商氛围\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商详情页风格\n按细节图生成：输出产品局部放大图，重点展示材质、做工、纹理或关键细节；禁止生成整套场景主视觉。\n重点展示材质和纹理\n\n严格避免以下问题：水印，logo，文字，低清像素',
+      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n提供另一个主视觉构图\n\n严格避免以下问题：水印，logo，文字，低清像素'
     ])
     expect(result.groupedResults).toHaveLength(2)
     expect(result.groupedResults[0].outputs).toHaveLength(3)
     expect(result.groupedResults[0].outputs[0].title).toBe('主图0')
+    expect(result.groupedResults[0].outputs[0].promptFinal).toBe(
+      '统一高级电商详情页风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出产品整体外观和电商氛围\n\n严格避免以下问题：水印，logo，文字，低清像素'
+    )
     expect(result.groupedResults[0].outputs[1].title).toBe('细节图0')
     expect(result.groupedResults[0].outputs[2].title).toBe('主图1')
     expect(result.summary.title).toBe('套图生成 2 组 x 3 张')
@@ -687,5 +715,40 @@ describe('studioImageGenerationService', () => {
     })
 
     expect(createDrawTaskDependency.mock.calls[0][0].prompt).toBe('统一风格\n这里是用户改过的主图按钮提示词\n补充主体卖点')
+  })
+
+  it('does not append negative prompt section when series-generate negativePrompt is empty', async () => {
+    const createDrawTaskDependency = vi.fn(async ({ prompt }) => ({
+      id: `remote-${createDrawTaskDependency.mock.calls.length}`,
+      prompt
+    }))
+    const service = createService({
+      createDrawTaskDependency
+    })
+
+    await service.generateImageResults({
+      menuKey: 'series-generate',
+      taskId: 'task-series-generate-without-negative',
+      outputDirectory: 'C:/output',
+      draft: {
+        model: 'gpt-image-2',
+        sourceImage: {
+          name: 'main.png',
+          path: 'C:/input/main.png'
+        },
+        globalPrompt: '统一风格',
+        negativePrompt: '',
+        generateCount: 1,
+        batchCount: 1,
+        promptAssignments: [
+          { index: 1, prompt: '突出主体卖点', imageType: '商品主图' }
+        ],
+        size: '1:1'
+      }
+    })
+
+    expect(createDrawTaskDependency.mock.calls[0][0].prompt).toBe(
+      '统一风格\n按商品主图生成：输出产品电商效果图，突出主体展示、卖点呈现与主视觉氛围；禁止偏离商品主体。\n突出主体卖点'
+    )
   })
 })

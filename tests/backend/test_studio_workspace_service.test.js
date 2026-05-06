@@ -194,7 +194,15 @@ describe('studioWorkspaceService', () => {
     expect(snapshot.formDrafts['single-image'].compareModels).toHaveLength(4)
     expect(snapshot.formDrafts['single-design'].sourceImage).toBe(null)
     expect(snapshot.formDrafts['single-design'].model).toBe('gpt-image-2')
+    expect(snapshot.formDrafts['series-design'].selectedGlobalTagIds).toEqual([])
+    expect(snapshot.formDrafts['series-design'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-design'].negativePrompt).toBe('')
+    expect(snapshot.formDrafts['series-generate'].selectedGlobalTagIds).toEqual([])
+    expect(snapshot.formDrafts['series-generate'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-generate'].negativePrompt).toBe('')
     expect(snapshot.formDrafts['series-design'].imageAssignments).toEqual([])
+    expect(snapshot.formDrafts['series-design'].defaultAssignmentRatio).toBe('1:1')
+    expect(snapshot.formDrafts['series-design'].defaultAssignmentModel).toBe('gpt-image-2')
     expect(snapshot.formDrafts['series-generate'].promptAssignments).toHaveLength(20)
     expect(snapshot.workspaceDashboard).not.toHaveProperty('copywritingStats')
     expect(snapshot.workspaceDashboard.singleImageStats.title).toBe('单图测试统计')
@@ -334,6 +342,55 @@ describe('studioWorkspaceService', () => {
     })
 
     await expect(service.clearRuntimeState()).rejects.toThrow('当前存在进行中的任务，暂不能一键清理')
+  })
+
+  it('normalizes missing negative prompt fields for legacy series drafts', async () => {
+    const store = createMemoryStore()
+
+    const { createSettingsStoreService } = await import('../../main/src/services/settingsStoreService.js')
+    const { createStudioWorkspaceService, STUDIO_WORKSPACE_KEY } = await import('../../main/src/services/studioWorkspaceService.js')
+
+    store.set(STUDIO_WORKSPACE_KEY, {
+      formDrafts: {
+        'series-design': {
+          globalPrompt: '统一风格',
+          selectedGlobalTagIds: [],
+          model: 'gpt-image-2',
+          taskName: 'legacy-design',
+          imageAssignments: [],
+          batchCount: 1,
+          size: '1:1'
+        },
+        'series-generate': {
+          globalPrompt: '统一风格',
+          selectedGlobalTagIds: [],
+          model: 'gpt-image-2',
+          taskName: 'legacy-generate',
+          sourceImage: null,
+          generateCount: 20,
+          promptAssignments: [],
+          batchCount: 1,
+          size: '1:1'
+        }
+      }
+    })
+
+    const settingsService = createSettingsStoreService({ store })
+    const service = createStudioWorkspaceService({
+      store,
+      settingsService,
+      ...createEmptyOutputScanDependencies(),
+      ensureDirectory: async () => undefined,
+      persistSourceFiles: async () => [],
+      writeFile: async () => undefined
+    })
+
+    const snapshot = service.getSnapshot()
+
+    expect(snapshot.formDrafts['series-design'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-design'].negativePrompt).toBe('')
+    expect(snapshot.formDrafts['series-generate'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-generate'].negativePrompt).toBe('')
   })
 
   it('converts orphaned active tasks to failed before one-key cleanup proceeds', async () => {
@@ -680,18 +737,28 @@ describe('studioWorkspaceService', () => {
       patch: {
         globalPrompt: '统一高端电商风格',
         taskName: 'SeriesA',
+        defaultAssignmentRatio: '3:4',
+        defaultAssignmentModel: 'nano-banana-fast',
         imageAssignments: [
           {
             name: 'look-1.jpg',
             path: 'C:/images/look-1.jpg',
             selected: true,
-            prompt: '主图强化材质光泽'
+            prompt: '主图强化材质光泽',
+            imageType: '商品主图',
+            size: '4:3',
+            model: 'nano-banana-fast',
+            tagIds: ['tag-quality-hd', 'tag-background-white']
           },
           {
             name: 'look-2.jpg',
             path: 'C:/images/look-2.jpg',
             selected: true,
-            prompt: '详情图增加空间感'
+            prompt: '详情图增加空间感',
+            imageType: '详情图',
+            size: 'a4-portrait',
+            model: 'gpt-image-2',
+            tagIds: []
           }
         ]
       }
@@ -704,6 +771,16 @@ describe('studioWorkspaceService', () => {
     expect(createdSeriesDesignTask.title).toContain('套图定向生成')
     expect(createdSeriesDesignTask.inputCount).toBe(2)
     expect(createdSeriesDesignTask.plannedOutputCount).toBe(2)
+
+    const afterSeriesDraftSnapshot = service.getSnapshot()
+    expect(afterSeriesDraftSnapshot.formDrafts['series-design'].defaultAssignmentRatio).toBe('3:4')
+    expect(afterSeriesDraftSnapshot.formDrafts['series-design'].defaultAssignmentModel).toBe('nano-banana-fast')
+    expect(afterSeriesDraftSnapshot.formDrafts['series-design'].imageAssignments[0]).toMatchObject({
+      imageType: '商品主图',
+      size: '4:3',
+      model: 'nano-banana-fast',
+      tagIds: ['tag-quality-hd', 'tag-background-white']
+    })
 
     await service.saveDraft({
       menuKey: 'series-generate',

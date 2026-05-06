@@ -114,6 +114,10 @@ function closePreview() {
   selectedPreview.value = null
 }
 
+function resolvePromptFinal(value) {
+  return String(value || '').trim()
+}
+
 // 模型价格主区示例：
 // gpt-image-2
 // 3000 / 次
@@ -184,6 +188,10 @@ function closePreview() {
             <button class="image-preview-button comparison-card__preview" type="button" @click="openPreview(image)">
               <img :src="image.preview" :alt="image.title" />
             </button>
+            <label v-if="resolvePromptFinal(image.promptFinal)" class="form-field comparison-card__prompt">
+              <span>发送提示词</span>
+              <textarea :value="resolvePromptFinal(image.promptFinal)" rows="3" readonly></textarea>
+            </label>
           </article>
         </div>
       </section>
@@ -198,6 +206,10 @@ function closePreview() {
             <button class="image-preview-button comparison-card__preview" type="button" @click="openPreview(image)">
               <img :src="image.preview" :alt="image.title" />
             </button>
+            <label v-if="resolvePromptFinal(image.promptFinal)" class="form-field comparison-card__prompt">
+              <span>发送提示词</span>
+              <textarea :value="resolvePromptFinal(image.promptFinal)" rows="3" readonly></textarea>
+            </label>
           </article>
         </div>
       </section>
@@ -215,6 +227,10 @@ function closePreview() {
                 <img :src="output.preview" :alt="output.title" />
               </button>
               <strong>{{ output.model }}</strong>
+              <label v-if="resolvePromptFinal(output.promptFinal)" class="form-field image-result-card__prompt">
+                <span>发送提示词</span>
+                <textarea :value="resolvePromptFinal(output.promptFinal)" rows="3" readonly></textarea>
+              </label>
             </article>
           </div>
         </article>
@@ -233,6 +249,10 @@ function closePreview() {
                 <img :src="output.preview" :alt="output.title" />
               </button>
               <strong>{{ output.model }}</strong>
+              <label v-if="resolvePromptFinal(output.promptFinal)" class="form-field image-result-card__prompt">
+                <span>发送提示词</span>
+                <textarea :value="resolvePromptFinal(output.promptFinal)" rows="3" readonly></textarea>
+              </label>
             </article>
           </div>
         </article>

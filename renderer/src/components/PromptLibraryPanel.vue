@@ -9,15 +9,43 @@ const props = defineProps({
   customPromptTemplates: {
     type: Array,
     required: true
+  },
+  fixedNegativePromptTemplates: {
+    type: Array,
+    required: true
+  },
+  customNegativePromptTemplates: {
+    type: Array,
+    required: true
+  },
+  promptTagCategories: {
+    type: Array,
+    required: true
   }
 })
 
-const emit = defineEmits(['save-template', 'remove-template'])
+const emit = defineEmits([
+  'save-template',
+  'remove-template',
+  'save-negative-template',
+  'remove-negative-template',
+  'save-tag-category',
+  'save-tag',
+  'remove-tag',
+  'remove-tag-category'
+])
 const fixedTemplateDrafts = ref([])
-const expandedFixedTemplateIds = ref([])
-const expandedStoredTemplateIds = ref([])
+const tagCategoryDrafts = ref([])
+const negativePromptDraft = reactive({
+  id: '',
+  name: '',
+  category: '反向提示词',
+  prompt: '',
+  source: 'custom'
+})
 
-// 固定按钮模板：商品主图 / 详情图 / 细节图 / 尺寸图 / 白底图 / 颜色图
+// 默认标签分类：画风风格 / 构图镜头 / 光影色调 / 材质质感 / 画质参数
+// 默认标签：写实 / 二次元 / 电影感镜头 / 丁达尔光 / 金属磨砂 / 超高清 等
 
 const customDraft = reactive({
   id: '',
@@ -27,19 +55,81 @@ const customDraft = reactive({
   source: 'custom'
 })
 
-const sortedStoredTemplates = computed(() => {
+const tagCreatorState = reactive({
+  categoryKey: '',
+  value: ''
+})
+
+const categoryNameEditingState = reactive({
+  categoryKey: '',
+  value: ''
+})
+
+const bannedRiskHints = [
+  '和原图一致',
+  '保持原样',
+  '复刻原图',
+  '不改动布局',
+  '完全一致',
+  '不要变化'
+]
+
+const warningRiskHints = [
+  '尽量不变',
+  '保留原图风格',
+  '轻微修改',
+  '只改一点',
+  '背景不动'
+]
+
+const defaultNegativeTemplateHints = ['电商通用', '电商模特', '电商静物']
+const negativeTemplatePlaceholder = defaultNegativeTemplateHints.join(' / ')
+
+const tagCategoryBlocks = computed(() => {
+  return tagCategoryDrafts.value.map((category, index) => ({
+    ...category,
+    categoryKey: category.id || `draft-category-${index}`
+  }))
+})
+
+const allTemplateDrafts = computed(() => {
+  const customTemplateMap = new Map((props.customPromptTemplates || []).map((template) => [template.id, template]))
+
+  return fixedTemplateDrafts.value
+    .concat((props.customPromptTemplates || []).map((template) => ({
+      id: template.id,
+      name: template.name || '',
+      category: template.category || '自定义提示词',
+      prompt: template.prompt || '',
+      source: 'custom'
+    })))
+    .map((template) => {
+      if (template.source === 'custom' && customTemplateMap.has(template.id)) {
+        const customTemplate = customTemplateMap.get(template.id)
+        return {
+          id: customTemplate.id,
+          name: customTemplate.name || '',
+          category: customTemplate.category || '自定义提示词',
+          prompt: customTemplate.prompt || '',
+          source: 'custom'
+        }
+      }
+
+      return template
+    })
+})
+
+const sortedNegativePromptTemplates = computed(() => {
   return [
-    ...fixedTemplateDrafts.value.map((template) => ({
+    ...(props.fixedNegativePromptTemplates || []).map((template) => ({
       ...template,
-      sourceLabel: '按钮提示词'
+      source: 'system-fixed'
     })),
-    ...props.customPromptTemplates.map((template) => ({
+    ...(props.customNegativePromptTemplates || []).map((template) => ({
       ...template,
-      sourceLabel: '自定义提示词'
+      source: 'custom'
     }))
-  ].sort((left, right) => {
-    return String(left.name || '').localeCompare(String(right.name || ''), 'zh-Hans-CN')
-  })
+  ]
 })
 
 watch(
@@ -48,9 +138,29 @@ watch(
     fixedTemplateDrafts.value = templates.map((template) => ({
       id: template.id,
       name: template.name || '',
-      category: template.category || '按钮提示词',
+      category: template.category || '系统提示词',
       prompt: template.prompt || '',
       source: 'system-fixed'
+    }))
+  },
+  {
+    immediate: true,
+    deep: true
+  }
+)
+
+watch(
+  () => props.promptTagCategories,
+  (categories = []) => {
+    tagCategoryDrafts.value = categories.map((category) => ({
+      id: category.id,
+      name: category.name || '',
+      tags: Array.isArray(category.tags)
+        ? category.tags.map((tag) => ({
+            id: tag.id,
+            name: tag.name || ''
+          }))
+        : []
     }))
   },
   {
@@ -62,27 +172,35 @@ watch(
 function buildFixedDraft(template = {}) {
   return {
     ...template,
-    source: 'system-fixed'
+    source: template.source === 'custom' ? 'custom' : 'system-fixed'
   }
 }
 
-function applyCustomTemplate(template = {}) {
+function applyPositiveTemplate(template = {}) {
   customDraft.id = template.id || ''
   customDraft.name = template.name || ''
-  customDraft.category = template.category || '自定义提示词'
+  customDraft.category = template.category || '正向提示词'
   customDraft.prompt = template.prompt || ''
-  customDraft.source = 'custom'
+  customDraft.source = template.source === 'system-fixed' ? 'system-fixed' : 'custom'
 }
 
 function resetCustomDraft() {
-  applyCustomTemplate({})
+  applyPositiveTemplate({
+    category: '自定义提示词',
+    source: 'custom'
+  })
 }
 
 function saveFixedTemplate(template) {
   emit('save-template', buildFixedDraft(template))
 }
 
-function saveCustomTemplate() {
+function savePositiveTemplate() {
+  if (customDraft.source === 'system-fixed') {
+    saveFixedTemplate(customDraft)
+    return
+  }
+
   emit('save-template', {
     id: customDraft.id || undefined,
     name: customDraft.name,
@@ -100,32 +218,111 @@ function removeCustomTemplate(templateId) {
   }
 }
 
-function toggleTemplateExpansion(templateId) {
-  if (!templateId) {
+function applyNegativeTemplate(template = {}) {
+  negativePromptDraft.id = template.id || ''
+  negativePromptDraft.name = template.name || ''
+  negativePromptDraft.category = template.category || '反向提示词'
+  negativePromptDraft.prompt = template.prompt || ''
+  negativePromptDraft.source = template.source === 'system-fixed' ? 'system-fixed' : 'custom'
+}
+
+function resetNegativePromptDraft() {
+  applyNegativeTemplate({})
+}
+
+function saveNegativePromptTemplate() {
+  emit('save-negative-template', {
+    id: negativePromptDraft.id || undefined,
+    name: negativePromptDraft.name,
+    category: negativePromptDraft.category,
+    prompt: negativePromptDraft.prompt,
+    source: negativePromptDraft.source === 'system-fixed' ? 'system-fixed' : 'custom'
+  })
+
+  if (negativePromptDraft.source !== 'system-fixed') {
+    resetNegativePromptDraft()
+  }
+}
+
+function removeNegativePromptTemplate(templateId) {
+  emit('remove-negative-template', templateId)
+  if (negativePromptDraft.id === templateId) {
+    resetNegativePromptDraft()
+  }
+}
+
+function createTagCategory() {
+  const draftCategory = {
+    id: '',
+    name: '',
+    tags: []
+  }
+  tagCategoryDrafts.value = [...tagCategoryDrafts.value, draftCategory]
+  categoryNameEditingState.categoryKey = `draft-category-${tagCategoryDrafts.value.length - 1}`
+  categoryNameEditingState.value = ''
+}
+
+function startRenameCategory(category) {
+  categoryNameEditingState.categoryKey = category.categoryKey
+  categoryNameEditingState.value = category.name || ''
+}
+
+function cancelRenameCategory() {
+  if (!categoryNameEditingState.categoryKey) {
     return
   }
 
-  expandedFixedTemplateIds.value = expandedFixedTemplateIds.value.includes(templateId)
-    ? expandedFixedTemplateIds.value.filter((item) => item !== templateId)
-    : [...expandedFixedTemplateIds.value, templateId]
-}
-
-function toggleStoredTemplateExpansion(templateId) {
-  if (!templateId) {
-    return
+  const draftIndex = Number.parseInt(String(categoryNameEditingState.categoryKey).replace('draft-category-', ''), 10)
+  if (Number.isInteger(draftIndex)) {
+    const draftCategory = tagCategoryDrafts.value[draftIndex]
+    if (draftCategory && !draftCategory.id && !draftCategory.name && (draftCategory.tags || []).length === 0) {
+      tagCategoryDrafts.value = tagCategoryDrafts.value.filter((_item, index) => index !== draftIndex)
+    }
   }
 
-  expandedStoredTemplateIds.value = expandedStoredTemplateIds.value.includes(templateId)
-    ? expandedStoredTemplateIds.value.filter((item) => item !== templateId)
-    : [...expandedStoredTemplateIds.value, templateId]
+  categoryNameEditingState.categoryKey = ''
+  categoryNameEditingState.value = ''
 }
 
-function isTemplateExpanded(templateId) {
-  return expandedFixedTemplateIds.value.includes(templateId)
+function saveTagCategory(category) {
+  emit('save-tag-category', {
+    id: category.id || undefined,
+    name: categoryNameEditingState.categoryKey === category.categoryKey
+      ? categoryNameEditingState.value
+      : category.name
+  })
+  cancelRenameCategory()
 }
 
-function isStoredTemplateExpanded(templateId) {
-  return expandedStoredTemplateIds.value.includes(templateId)
+function removeTagCategory(category) {
+  emit('remove-tag-category', {
+    id: category.id
+  })
+}
+
+function startCreateTag(category) {
+  tagCreatorState.categoryKey = category.categoryKey
+  tagCreatorState.value = ''
+}
+
+function cancelCreateTag() {
+  tagCreatorState.categoryKey = ''
+  tagCreatorState.value = ''
+}
+
+function saveTag(category) {
+  emit('save-tag', {
+    categoryId: category.id,
+    name: tagCreatorState.value
+  })
+  cancelCreateTag()
+}
+
+function removeTag(categoryId, tagId) {
+  emit('remove-tag', {
+    categoryId,
+    tagId
+  })
 }
 </script>
 
@@ -134,131 +331,216 @@ function isStoredTemplateExpanded(templateId) {
     <header class="section-header">
       <div>
         <h2>提示词库</h2>
-        <p class="section-copy">管理按钮提示词和自定义提示词模板，所有修改都保存在本地。</p>
+        <p class="section-copy">管理系统提示词、自定义提示词、标签库和风险提示。</p>
       </div>
     </header>
 
     <div class="panel-content panel-content--prompt-library">
-      <section class="prompt-library-grid">
-        <article class="prompt-library-column">
-          <div class="prompt-library-column__header">
-            <h3>按钮提示词</h3>
-          </div>
-
-          <div class="prompt-library-column__body scrollbar-hidden">
-            <div class="prompt-library-list">
-              <section
-                v-for="template in fixedTemplateDrafts"
-                :key="template.id"
-                class="prompt-template-disclosure"
-              >
-                <button
-                  class="prompt-template-disclosure__summary"
-                  type="button"
-                  @click="toggleTemplateExpansion(template.id)"
-                >
-                  <strong>{{ template.name || '未命名按钮' }}</strong>
-                  <span>{{ isTemplateExpanded(template.id) ? '收起' : '展开' }}</span>
-                </button>
-
-                <div v-if="isTemplateExpanded(template.id)" class="prompt-template-disclosure__content">
-                  <div class="prompt-template-row__preview">
-                    <span>按钮预览</span>
-                    <button class="secondary-action prompt-template-preview-button" type="button">
-                      {{ template.name || '未命名按钮' }}
-                    </button>
-                  </div>
-                  <label class="form-field">
-                    <span>按钮名称</span>
-                    <input v-model="template.name" type="text" placeholder="输入按钮名称" />
-                  </label>
-                  <label class="form-field prompt-template-row__prompt">
-                    <span>提示词</span>
-                    <textarea v-model="template.prompt" rows="4" placeholder="输入按钮对应的固定提示词"></textarea>
-                  </label>
-                  <button class="primary-action" type="button" @click="saveFixedTemplate(template)">保存按钮提示词</button>
-                </div>
-              </section>
+      <section class="prompt-library-grid prompt-library-grid--triple prompt-library-grid--fixed-height">
+        <article class="prompt-library-column prompt-library-column--positive">
+          <div class="prompt-library-column__header prompt-library-column__header--stacked">
+            <div>
+              <h3>正向提示词</h3>
+              <p class="prompt-library-column__eyebrow">系统模板与自定义模板统一编辑</p>
             </div>
           </div>
-        </article>
 
-        <article class="prompt-library-column">
-          <div class="prompt-library-column__header">
-            <h3>自定义提示词</h3>
-            <button class="secondary-action" type="button" @click="resetCustomDraft">新建自定义模板</button>
-          </div>
-
-          <div class="prompt-library-column__body scrollbar-hidden prompt-library-column__body--stacked">
+          <div class="prompt-library-column__body prompt-library-column__body--stacked scrollbar-hidden prompt-library-column__body--full">
             <div class="prompt-template-editor">
+              <div class="prompt-template-editor__header">
+                <span>编辑正向模板</span>
+                <button class="secondary-action secondary-action--compact" type="button" @click="resetCustomDraft">新建正向模板</button>
+              </div>
               <label class="form-field">
                 <span>模板名称</span>
-                <input v-model="customDraft.name" type="text" />
+                <input v-model="customDraft.name" type="text" placeholder="输入模板名称" />
               </label>
               <label class="form-field">
-                <span>分类</span>
-                <input v-model="customDraft.category" type="text" />
-              </label>
-              <label class="form-field">
-                <span>提示词</span>
-                <textarea v-model="customDraft.prompt" rows="6"></textarea>
+                <span>正向提示词</span>
+                <textarea v-model="customDraft.prompt" rows="6" placeholder="输入正向提示词"></textarea>
               </label>
               <div class="prompt-template-editor__actions">
-                <button class="primary-action" type="button" @click="saveCustomTemplate">保存模板</button>
-                <button class="secondary-action" type="button" :disabled="!customDraft.id" @click="removeCustomTemplate(customDraft.id)">删除模板</button>
+                <button class="primary-action" type="button" @click="savePositiveTemplate">保存正向模板</button>
+                <button
+                  class="secondary-action"
+                  type="button"
+                  :disabled="!customDraft.id || customDraft.source === 'system-fixed'"
+                  @click="removeCustomTemplate(customDraft.id)"
+                >
+                  删除正向模板
+                </button>
               </div>
             </div>
 
             <div class="prompt-library-list">
               <button
-                v-for="template in customPromptTemplates"
+                v-for="template in allTemplateDrafts"
                 :key="template.id"
                 class="prompt-template-row prompt-template-row--button"
                 type="button"
-                @click="applyCustomTemplate(template)"
+                @click="applyPositiveTemplate(template)"
               >
                 <strong>{{ template.name }}</strong>
-                <span>{{ template.category }}</span>
+                <span>{{ template.source === 'system-fixed' ? '系统模板' : '自定义模板' }}</span>
               </button>
             </div>
           </div>
         </article>
 
-        <article class="prompt-library-column prompt-library-column--sidebar">
-          <div class="prompt-library-column__header">
+        <article class="prompt-library-column prompt-library-column--negative">
+          <div class="prompt-library-column__header prompt-library-column__header--stacked">
             <div>
-              <h3>提示词存储</h3>
-              <span class="section-copy">按模板名称排序</span>
+              <h3>负向提示词</h3>
+              <p class="prompt-library-column__eyebrow">反向提示词库</p>
             </div>
           </div>
 
-          <div class="prompt-library-column__body scrollbar-hidden">
-            <div class="prompt-library-list">
-              <section
-                v-for="template in sortedStoredTemplates"
-                :key="`stored-${template.id}`"
-                class="prompt-storage-card"
-              >
-                <button
-                  class="prompt-storage-card__summary"
-                  type="button"
-                  @click="toggleStoredTemplateExpansion(template.id)"
-                >
-                  <strong>{{ template.name || '未命名模板' }}</strong>
-                  <span>{{ isStoredTemplateExpanded(template.id) ? '收起' : '展开' }}</span>
-                </button>
+          <div class="prompt-library-column__body scrollbar-hidden prompt-library-column__body--stacked prompt-library-column__body--full">
+            <div class="prompt-template-editor">
+              <div class="prompt-template-editor__header">
+                <span>编辑反向模板</span>
+                <button class="secondary-action secondary-action--compact" type="button" @click="resetNegativePromptDraft">新建反向模板</button>
+              </div>
+              <label class="form-field">
+                <span>模板名称</span>
+                <input v-model="negativePromptDraft.name" type="text" :placeholder="negativeTemplatePlaceholder" />
+              </label>
+              <label class="form-field">
+                <span>反向提示词</span>
+                <textarea v-model="negativePromptDraft.prompt" rows="6"></textarea>
+              </label>
+              <div class="prompt-template-editor__actions">
+                <button class="primary-action" type="button" @click="saveNegativePromptTemplate">保存反向提示词模板</button>
+                <button class="secondary-action" type="button" :disabled="!negativePromptDraft.id || negativePromptDraft.source === 'system-fixed'" @click="removeNegativePromptTemplate(negativePromptDraft.id)">删除反向提示词模板</button>
+              </div>
+            </div>
 
-                <div v-if="isStoredTemplateExpanded(template.id)" class="prompt-storage-card__content">
-                  <div class="prompt-storage-card__header">
-                    <span>{{ template.sourceLabel }}</span>
-                    <small>{{ template.category || '未分类' }}</small>
+            <div class="prompt-library-list">
+              <button
+                v-for="template in sortedNegativePromptTemplates"
+                :key="template.id"
+                class="prompt-template-row prompt-template-row--button"
+                type="button"
+                @click="applyNegativeTemplate(template)"
+              >
+                <strong>{{ template.name }}</strong>
+                <span>{{ template.category || '反向提示词' }}</span>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="prompt-library-column prompt-library-column--tags">
+          <div class="prompt-library-column__header prompt-library-column__header--stacked">
+            <div>
+              <h3>分类标签</h3>
+              <p class="prompt-library-column__eyebrow">标签库</p>
+            </div>
+            <button class="secondary-action secondary-action--compact" type="button" @click="createTagCategory">增加分类</button>
+          </div>
+
+          <div class="prompt-library-column__body scrollbar-hidden prompt-library-column__body--full">
+            <div class="prompt-tag-category-grid">
+              <section
+                v-for="category in tagCategoryBlocks"
+                :key="category.categoryKey"
+                class="prompt-tag-category-card"
+              >
+                <div class="prompt-tag-category-card__header">
+                  <div v-if="categoryNameEditingState.categoryKey === category.categoryKey" class="prompt-tag-category-card__title-edit">
+                    <input
+                      v-model="categoryNameEditingState.value"
+                      type="text"
+                      placeholder="输入分类名称"
+                    />
+                    <button class="secondary-action secondary-action--compact" type="button" @click="saveTagCategory(category)">保存分类</button>
+                    <button class="secondary-action secondary-action--compact" type="button" @click="cancelRenameCategory">取消</button>
                   </div>
-                  <p>{{ template.prompt || '暂无提示词内容' }}</p>
+                  <template v-else>
+                    <strong>{{ category.name || '未命名分类' }}</strong>
+                    <div class="prompt-tag-category-card__actions">
+                      <button class="secondary-action secondary-action--compact" type="button" @click="startRenameCategory(category)">编辑分类</button>
+                      <button class="secondary-action secondary-action--compact" type="button" :disabled="!category.id" @click="removeTagCategory(category)">删除分类</button>
+                    </div>
+                  </template>
+                </div>
+
+                <div class="prompt-tag-chip-list">
+                  <article
+                    v-for="tag in category.tags"
+                    :key="tag.id || `${category.categoryKey}-${tag.name}`"
+                    class="prompt-tag-chip"
+                    title="半透明绿色"
+                  >
+                    <span>{{ tag.name }}</span>
+                    <button class="prompt-tag-chip__remove" type="button" aria-label="删除标签" @click="removeTag(category.id, tag.id)">×</button>
+                  </article>
+
+                  <div
+                    v-if="tagCreatorState.categoryKey === category.categoryKey"
+                    class="prompt-tag-chip prompt-tag-chip--creator"
+                  >
+                    <input
+                      v-model="tagCreatorState.value"
+                      type="text"
+                      placeholder="输入标签"
+                    />
+                    <button class="secondary-action secondary-action--compact" type="button" :disabled="!category.id" @click="saveTag(category)">保存</button>
+                    <button class="secondary-action secondary-action--compact" type="button" @click="cancelCreateTag">取消</button>
+                  </div>
+
+                  <button
+                    v-else
+                    class="prompt-tag-chip prompt-tag-chip--new"
+                    type="button"
+                    :disabled="!category.id"
+                    @click="startCreateTag(category)"
+                  >
+                    新建标签
+                  </button>
                 </div>
               </section>
             </div>
           </div>
         </article>
+
+        <aside class="prompt-library-risk-sidebar prompt-library-stack prompt-library-stack--risk prompt-library-column--risk">
+          <article class="prompt-library-column prompt-library-stack__panel prompt-library-risk-panel">
+            <div class="prompt-library-column__header prompt-library-column__header--stacked">
+              <div>
+                <h3>违禁提示词</h3>
+                <p class="prompt-library-column__eyebrow">禁用词提示</p>
+              </div>
+            </div>
+
+            <div class="prompt-library-column__body scrollbar-hidden prompt-library-column__body--full">
+              <p class="prompt-risk-copy">以下词建议直接避免使用</p>
+              <div class="prompt-risk-list">
+                <article v-for="riskWord in bannedRiskHints" :key="riskWord" class="prompt-risk-card prompt-risk-card--danger">
+                  <strong>{{ riskWord }}</strong>
+                </article>
+              </div>
+            </div>
+          </article>
+
+          <article class="prompt-library-column prompt-library-stack__panel prompt-library-risk-panel">
+            <div class="prompt-library-column__header prompt-library-column__header--stacked">
+              <div>
+                <h3>警告提示词</h3>
+                <p class="prompt-library-column__eyebrow">警告词提示</p>
+              </div>
+            </div>
+
+            <div class="prompt-library-column__body scrollbar-hidden prompt-library-column__body--full">
+              <p class="prompt-risk-copy">以下词建议改写后再使用</p>
+              <div class="prompt-risk-list">
+                <article v-for="riskWord in warningRiskHints" :key="riskWord" class="prompt-risk-card prompt-risk-card--warning">
+                  <strong>{{ riskWord }}</strong>
+                </article>
+              </div>
+            </div>
+          </article>
+        </aside>
       </section>
     </div>
   </div>

@@ -153,7 +153,11 @@ function normalizeImageAssignments(assignments = []) {
           id: item.id || `series-design-${index + 1}`,
           selected: item.selected !== false,
           prompt: item.prompt || '',
-          imageType: item.imageType || ''
+          imageType: item.imageType || '',
+          size: item.size || '1:1',
+          model: item.model || '',
+          tagIds: Array.isArray(item.tagIds) ? item.tagIds.filter((tagId) => typeof tagId === 'string' && tagId.trim()) : [],
+          tagNames: Array.isArray(item.tagNames) ? item.tagNames.filter((tagName) => typeof tagName === 'string' && tagName.trim()) : []
         }
       })
       .filter(Boolean)
@@ -222,6 +226,12 @@ function normalizeDraftForMenu(menuKey, draft = {}) {
       model: nextModel,
       taskName: String(draft.taskName || defaultDraft.taskName || ''),
       globalPrompt: draft.globalPrompt || '',
+      negativeTemplateId: String(draft.negativeTemplateId || ''),
+      negativePrompt: String(draft.negativePrompt || ''),
+      legacyGlobalPrompt: draft.legacyGlobalPrompt || '',
+      selectedGlobalTagIds: Array.isArray(draft.selectedGlobalTagIds) ? draft.selectedGlobalTagIds.filter((item) => typeof item === 'string' && item.trim()) : [],
+      defaultAssignmentRatio: draft.defaultAssignmentRatio || defaultDraft.defaultAssignmentRatio || draft.size || '1:1',
+      defaultAssignmentModel: draft.defaultAssignmentModel || defaultDraft.defaultAssignmentModel || nextModel,
       imageAssignments: normalizeImageAssignments(draft.imageAssignments),
       batchCount: Math.max(1, Number(draft.batchCount) || defaultDraft.batchCount || 1),
       size: draft.size || defaultDraft.size
@@ -237,6 +247,10 @@ function normalizeDraftForMenu(menuKey, draft = {}) {
       taskName: String(draft.taskName || defaultDraft.taskName || ''),
       sourceImage: normalizeImageAsset(draft.sourceImage) || defaultDraft.sourceImage,
       globalPrompt: draft.globalPrompt || '',
+      negativeTemplateId: String(draft.negativeTemplateId || ''),
+      negativePrompt: String(draft.negativePrompt || ''),
+      legacyGlobalPrompt: draft.legacyGlobalPrompt || '',
+      selectedGlobalTagIds: Array.isArray(draft.selectedGlobalTagIds) ? draft.selectedGlobalTagIds.filter((item) => typeof item === 'string' && item.trim()) : [],
       generateCount,
       promptAssignments: normalizePromptAssignments(draft.promptAssignments, generateCount),
       batchCount: Math.max(1, Number(draft.batchCount) || defaultDraft.batchCount || 1),
@@ -334,6 +348,12 @@ function createDefaultDrafts() {
     },
     'series-design': {
       globalPrompt: '统一套图风格与商品调性',
+      negativeTemplateId: '',
+      negativePrompt: '',
+      selectedGlobalTagIds: [],
+      legacyGlobalPrompt: '',
+      defaultAssignmentRatio: '1:1',
+      defaultAssignmentModel: resolveDefaultModelForMenu('series-design'),
       model: resolveDefaultModelForMenu('series-design'),
       taskName: '',
       imageAssignments: [],
@@ -342,6 +362,10 @@ function createDefaultDrafts() {
     },
     'series-generate': {
       globalPrompt: '统一商品详情图整体风格',
+      negativeTemplateId: '',
+      negativePrompt: '',
+      selectedGlobalTagIds: [],
+      legacyGlobalPrompt: '',
       model: resolveDefaultModelForMenu('series-generate'),
       taskName: '',
       sourceImage: null,

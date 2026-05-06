@@ -1,5 +1,6 @@
 <script setup>
 import { computed, reactive } from 'vue'
+import { applyTemplateSelectionToAssignment } from '../utils/assignmentTemplateUpdate.js'
 
 const props = defineProps({
   activeMenu: {
@@ -30,7 +31,19 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
-  customPromptTemplates: {
+  promptTemplates: {
+    type: Array,
+    default: () => []
+  },
+  promptTagCategories: {
+    type: Array,
+    default: () => []
+  },
+  fixedNegativePromptTemplates: {
+    type: Array,
+    default: () => []
+  },
+  customNegativePromptTemplates: {
     type: Array,
     default: () => []
   },
@@ -67,23 +80,37 @@ const seriesGeneratePromptAssignments = computed(() => {
   return Array.isArray(props.draftForm.promptAssignments) ? props.draftForm.promptAssignments : []
 })
 
-const seriesGenerateImageTypeOptions = [
-  '商品主图',
-  '详情图',
-  '细节图',
-  '尺寸图',
-  '白底图',
-  '颜色图'
-]
+const selectedGlobalTagIds = computed(() => {
+  return Array.isArray(props.draftForm.selectedGlobalTagIds) ? props.draftForm.selectedGlobalTagIds : []
+})
+
+const selectedGlobalTags = computed(() => {
+  const tagMap = new Map((props.promptTagCategories || []).flatMap((category) => {
+    return (category.tags || []).map((tag) => [tag.id, tag])
+  }))
+
+  return selectedGlobalTagIds.value
+    .map((tagId) => tagMap.get(tagId))
+    .filter(Boolean)
+})
+
+const promptTemplateOptions = computed(() => {
+  return Array.isArray(props.promptTemplates) ? props.promptTemplates : []
+})
+
+const negativePromptTemplateOptions = computed(() => {
+  return [
+    ...(Array.isArray(props.fixedNegativePromptTemplates) ? props.fixedNegativePromptTemplates : []),
+    ...(Array.isArray(props.customNegativePromptTemplates) ? props.customNegativePromptTemplates : [])
+  ]
+})
 
 const uploadIconUrl = new URL('../../../icon/shangchuan.png', import.meta.url).href
 const saveDirectoryIconUrl = new URL('../../../icon/baocun.png', import.meta.url).href
 const promptTemplateIconUrl = new URL('../../../icon/moban.png', import.meta.url).href
-const promptImportIconUrl = new URL('../../../icon/daoru.png', import.meta.url).href
-const promptImportState = reactive({
-  visible: false,
-  targetKind: '',
-  index: -1
+const tagPickerVisibility = reactive({
+  'series-design': false,
+  'series-generate': false
 })
 
 const submitButtonLabel = computed(() => {
@@ -160,6 +187,10 @@ function updateAssignment(index, field, value) {
   emitField('imageAssignments', nextAssignments)
 }
 
+function replaceAssignments(nextAssignments) {
+  emitField('imageAssignments', Array.isArray(nextAssignments) ? nextAssignments : [])
+}
+
 function updateSeriesGenerateAssignment(index, field, value) {
   const nextAssignments = seriesGeneratePromptAssignments.value.map((item, currentIndex) => {
     if (currentIndex !== index) {
@@ -183,49 +214,68 @@ function updateCompareModel(index, value) {
   emitField('compareModels', nextModels)
 }
 
-function openPromptImport(targetKind, index) {
-  promptImportState.visible = true
-  promptImportState.targetKind = targetKind
-  promptImportState.index = index
+function resolveTemplateById(templateId) {
+  return promptTemplateOptions.value.find((template) => template.id === templateId) || null
 }
 
-function closePromptImport() {
-  promptImportState.visible = false
-  promptImportState.targetKind = ''
-  promptImportState.index = -1
-}
-
-function appendPromptTemplate(templatePrompt = '') {
-  const promptText = String(templatePrompt || '').trim()
-  if (!promptText) {
-    closePromptImport()
+function handleTemplateSelection(targetKind, index, templateId) {
+  const template = resolveTemplateById(templateId)
+  if (!template) {
+    if (targetKind === 'series-design') {
+      replaceAssignments(applyTemplateSelectionToAssignment({
+        assignments: seriesAssignments.value,
+        index,
+        template: null
+      }))
+    } else if (targetKind === 'series-generate') {
+      updateSeriesGenerateAssignment(index, 'templateId', '')
+      updateSeriesGenerateAssignment(index, 'imageType', '')
+    }
     return
   }
 
-  if (promptImportState.targetKind === 'series-design') {
-    const currentAssignment = seriesAssignments.value[promptImportState.index]
-    if (!currentAssignment) {
-      closePromptImport()
-      return
-    }
-
-    const nextPrompt = [String(currentAssignment.prompt || '').trim(), promptText].filter(Boolean).join('\n')
-    updateAssignment(promptImportState.index, 'prompt', nextPrompt)
-    closePromptImport()
+  if (targetKind === 'series-design') {
+    replaceAssignments(applyTemplateSelectionToAssignment({
+      assignments: seriesAssignments.value,
+      index,
+      template
+    }))
     return
   }
 
-  if (promptImportState.targetKind === 'series-generate') {
-    const currentAssignment = seriesGeneratePromptAssignments.value[promptImportState.index]
-    if (!currentAssignment) {
-      closePromptImport()
-      return
-    }
-
-    const nextPrompt = [String(currentAssignment.prompt || '').trim(), promptText].filter(Boolean).join('\n')
-    updateSeriesGenerateAssignment(promptImportState.index, 'prompt', nextPrompt)
-    closePromptImport()
+  if (targetKind === 'series-generate') {
+    updateSeriesGenerateAssignment(index, 'templateId', template.id)
+    updateSeriesGenerateAssignment(index, 'imageType', template.name)
+    updateSeriesGenerateAssignment(index, 'prompt', template.prompt || '')
   }
+}
+
+function appendGlobalTag(tagId) {
+  if (!tagId || selectedGlobalTagIds.value.includes(tagId)) {
+    return
+  }
+
+  emitField('selectedGlobalTagIds', [...selectedGlobalTagIds.value, tagId])
+}
+
+function removeGlobalTag(tagId) {
+  emitField('selectedGlobalTagIds', selectedGlobalTagIds.value.filter((item) => item !== tagId))
+}
+
+function clearSelectedGlobalTags() {
+  emitField('selectedGlobalTagIds', [])
+}
+
+function toggleTagPicker(menuKey) {
+  if (!Object.prototype.hasOwnProperty.call(tagPickerVisibility, menuKey)) {
+    return
+  }
+
+  tagPickerVisibility[menuKey] = !tagPickerVisibility[menuKey]
+}
+
+function isTagPickerVisible(menuKey) {
+  return tagPickerVisibility[menuKey] === true
 }
 </script>
 
@@ -424,15 +474,49 @@ function appendPromptTemplate(templatePrompt = '') {
           </div>
         </section>
 
-        <label class="form-field">
-          <span>全局主提示词</span>
-          <textarea
-            :value="draftForm.globalPrompt"
-            rows="4"
-            placeholder="输入整套图片都要遵守的统一风格要求"
-            @input="emitField('globalPrompt', $event.target.value)"
-          ></textarea>
-        </label>
+        <section class="form-field prompt-tag-builder">
+          <div class="prompt-tag-builder__header">
+            <span>全局主提示词</span>
+            <div class="prompt-tag-builder__actions">
+              <button class="secondary-action secondary-action--compact" type="button" @click="toggleTagPicker('series-design')">
+                添加标签
+              </button>
+              <button class="secondary-action secondary-action--compact" type="button" @click="clearSelectedGlobalTags">清空标签</button>
+            </div>
+          </div>
+          <div class="selected-tag-list">
+            <strong>已选标签</strong>
+            <div class="selected-tag-chip-list">
+              <button
+                v-for="tag in selectedGlobalTags"
+                :key="tag.id"
+                class="prompt-tag-chip prompt-tag-chip--selected"
+                type="button"
+                @click="removeGlobalTag(tag.id)"
+              >
+                <span>{{ tag.name }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="isTagPickerVisible('series-design')" class="prompt-tag-picker">
+            <div class="prompt-library-list">
+              <section v-for="category in promptTagCategories" :key="category.id" class="prompt-tag-picker__group">
+                <strong>{{ category.name }}</strong>
+                <div class="prompt-tag-picker__chips">
+                  <button
+                    v-for="tag in category.tags || []"
+                    :key="tag.id"
+                    class="prompt-tag-chip prompt-tag-chip--picker"
+                    type="button"
+                    @click="appendGlobalTag(tag.id)"
+                  >
+                    <span>{{ tag.name }}</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
 
         <label class="form-field">
           <span>模型选择</span>
@@ -443,53 +527,15 @@ function appendPromptTemplate(templatePrompt = '') {
           </select>
         </label>
 
-        <div class="assignment-list">
-          <article v-for="(assignment, index) in seriesAssignments" :key="assignment.id || assignment.name" class="assignment-card">
-            <label class="assignment-card__toggle">
-              <input
-                :checked="assignment.selected !== false"
-                type="checkbox"
-                @change="updateAssignment(index, 'selected', $event.target.checked)"
-              />
-              <span>参与本次生成</span>
-            </label>
-            <div class="assignment-card__body">
-              <img v-if="assignment.preview" :src="assignment.preview" :alt="assignment.name" class="assignment-card__preview" />
-              <div class="assignment-card__fields">
-                <strong>{{ assignment.name }}</strong>
-                <label class="form-field">
-                  <span>图片类型</span>
-                  <div class="prompt-import-row">
-                    <div class="select-icon-field">
-                      <img class="select-icon-field__icon" :src="promptTemplateIconUrl" alt="" />
-                      <select
-                        :value="assignment.imageType || ''"
-                        @change="updateAssignment(index, 'imageType', $event.target.value)"
-                      >
-                        <option value="">请选择图片类型</option>
-                        <option v-for="type in seriesGenerateImageTypeOptions" :key="type" :value="type">
-                          {{ type }}
-                        </option>
-                      </select>
-                    </div>
-                    <button class="icon-action-button" type="button" aria-label="导入提示词模板" title="导入提示词模板" @click="openPromptImport('series-design', index)">
-                      <img :src="promptImportIconUrl" alt="" />
-                    </button>
-                  </div>
-                </label>
-                <label class="form-field">
-                  <span>图片专属提示词</span>
-                  <input
-                    :value="assignment.prompt"
-                    type="text"
-                    placeholder="输入当前图片的专属提示词"
-                    @input="updateAssignment(index, 'prompt', $event.target.value)"
-                  />
-                </label>
-              </div>
-            </div>
-          </article>
-        </div>
+        <label class="form-field">
+          <span>反向提示词</span>
+          <select :value="draftForm.negativeTemplateId || ''" @change="emitField('negativeTemplateId', $event.target.value)">
+            <option value="">请选择反向提示词模板</option>
+            <option v-for="template in negativePromptTemplateOptions" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </select>
+        </label>
 
         <label class="form-field">
           <span>生成组数</span>
@@ -520,6 +566,86 @@ function appendPromptTemplate(templatePrompt = '') {
             </button>
           </div>
         </label>
+
+        <div class="assignment-list">
+          <article v-for="(assignment, index) in seriesAssignments" :key="assignment.id || assignment.name" class="assignment-card">
+            <label class="assignment-card__toggle">
+              <input
+                :checked="assignment.selected !== false"
+                type="checkbox"
+                @change="updateAssignment(index, 'selected', $event.target.checked)"
+              />
+              <span>参与本次生成</span>
+            </label>
+            <div class="assignment-card__top">
+              <div class="assignment-card__media">
+                <div class="assignment-card__media-frame">
+                  <img v-if="assignment.preview" :src="assignment.preview" :alt="assignment.name" class="assignment-card__preview" />
+                </div>
+                <div class="assignment-card__media-copy">
+                  <strong>{{ assignment.name }}</strong>
+                  <small>{{ assignment.sizeLabel || '套图素材' }}</small>
+                </div>
+              </div>
+              <div class="assignment-card__control-panel">
+                <label class="form-field assignment-card__control-field">
+                  <span>图片类型</span>
+                  <div class="select-icon-field select-icon-field--strong assignment-card__compact-select">
+                    <img class="select-icon-field__icon" :src="promptTemplateIconUrl" alt="" />
+                    <select
+                      class="assignment-card__template-select"
+                      :value="assignment.templateId || ''"
+                      @change="handleTemplateSelection('series-design', index, $event.target.value)"
+                    >
+                      <option value="">请选择图片类型</option>
+                      <option v-for="template in promptTemplateOptions" :key="template.id" :value="template.id">
+                        {{ template.name }}
+                      </option>
+                    </select>
+                  </div>
+                </label>
+                <div class="assignment-card__control-stack">
+                  <label class="form-field assignment-card__control-field">
+                    <span>单张比例</span>
+                    <select
+                      class="assignment-card__compact-select"
+                      :value="assignment.size || draftForm.defaultAssignmentRatio || draftForm.size || '1:1'"
+                      @change="updateAssignment(index, 'size', $event.target.value)"
+                    >
+                      <option v-for="option in ratioOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="form-field assignment-card__control-field">
+                    <span>单张模型</span>
+                    <select
+                      class="assignment-card__compact-select"
+                      :value="assignment.model || draftForm.defaultAssignmentModel || draftForm.model || ''"
+                      @change="updateAssignment(index, 'model', $event.target.value)"
+                    >
+                      <option v-for="model in modelOptions" :key="model.value" :value="model.value">
+                        {{ model.label }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="assignment-card__fields">
+              <label class="form-field assignment-card__prompt-field--flush">
+                <span>图片专属提示词</span>
+                <textarea
+                  :value="assignment.prompt"
+                  rows="3"
+                  placeholder="输入当前图片的专属提示词"
+                  @input="updateAssignment(index, 'prompt', $event.target.value)"
+                ></textarea>
+              </label>
+            </div>
+          </article>
+        </div>
+
         <p v-if="longRunningHint" class="section-copy">{{ longRunningHint }}</p>
       </template>
 
@@ -550,21 +676,65 @@ function appendPromptTemplate(templatePrompt = '') {
           </article>
         </section>
 
-        <label class="form-field">
-          <span>全局风格提示词</span>
-          <textarea
-            :value="draftForm.globalPrompt"
-            rows="5"
-            placeholder="输入整组图片统一遵守的风格、构图和电商展示要求"
-            @input="emitField('globalPrompt', $event.target.value)"
-          ></textarea>
-        </label>
+        <section class="form-field prompt-tag-builder">
+          <div class="prompt-tag-builder__header">
+            <span>全局风格提示词</span>
+            <div class="prompt-tag-builder__actions">
+              <button class="secondary-action secondary-action--compact" type="button" @click="toggleTagPicker('series-generate')">
+                添加标签
+              </button>
+              <button class="secondary-action secondary-action--compact" type="button" @click="clearSelectedGlobalTags">清空标签</button>
+            </div>
+          </div>
+          <div class="selected-tag-list">
+            <strong>已选标签</strong>
+            <div class="selected-tag-chip-list">
+              <button
+                v-for="tag in selectedGlobalTags"
+                :key="tag.id"
+                class="prompt-tag-chip prompt-tag-chip--selected"
+                type="button"
+                @click="removeGlobalTag(tag.id)"
+              >
+                <span>{{ tag.name }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="isTagPickerVisible('series-generate')" class="prompt-tag-picker">
+            <div class="prompt-library-list">
+              <section v-for="category in promptTagCategories" :key="category.id" class="prompt-tag-picker__group">
+                <strong>{{ category.name }}</strong>
+                <div class="prompt-tag-picker__chips">
+                  <button
+                    v-for="tag in category.tags || []"
+                    :key="tag.id"
+                    class="prompt-tag-chip prompt-tag-chip--picker"
+                    type="button"
+                    @click="appendGlobalTag(tag.id)"
+                  >
+                    <span>{{ tag.name }}</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
 
         <label class="form-field">
           <span>模型选择</span>
           <select :value="draftForm.model" @change="emitField('model', $event.target.value)">
             <option v-for="model in modelOptions" :key="model.value" :value="model.value">
               {{ model.label }}
+            </option>
+          </select>
+        </label>
+
+        <label class="form-field">
+          <span>反向提示词</span>
+          <select :value="draftForm.negativeTemplateId || ''" @change="emitField('negativeTemplateId', $event.target.value)">
+            <option value="">请选择反向提示词模板</option>
+            <option v-for="template in negativePromptTemplateOptions" :key="template.id" :value="template.id">
+              {{ template.name }}
             </option>
           </select>
         </label>
@@ -637,30 +807,23 @@ function appendPromptTemplate(templatePrompt = '') {
             <article v-for="(assignment, index) in seriesGeneratePromptAssignments" :key="assignment.id || assignment.index || index" class="assignment-card">
               <div class="assignment-card__body assignment-card__body--prompt-only">
                 <div class="assignment-card__fields">
-                  <div class="form-row">
+                  <div class="assignment-card__template-row assignment-card__template-row--prompt-only">
                     <strong>{{ `第 ${index + 1} 张` }}</strong>
-                    <label class="form-field">
-                      <span>图片类型</span>
-                      <div class="prompt-import-row">
-                        <div class="select-icon-field">
-                          <img class="select-icon-field__icon" :src="promptTemplateIconUrl" alt="" />
-                          <select
-                            :value="assignment.imageType || ''"
-                            @change="updateSeriesGenerateAssignment(index, 'imageType', $event.target.value)"
-                          >
-                            <option value="">请选择图片类型</option>
-                            <option v-for="type in seriesGenerateImageTypeOptions" :key="type" :value="type">
-                              {{ type }}
-                            </option>
-                          </select>
-                        </div>
-                        <button class="icon-action-button" type="button" aria-label="导入提示词模板" title="导入提示词模板" @click="openPromptImport('series-generate', index)">
-                          <img :src="promptImportIconUrl" alt="" />
-                        </button>
-                      </div>
-                    </label>
+                    <div class="select-icon-field">
+                      <img class="select-icon-field__icon" :src="promptTemplateIconUrl" alt="" />
+                      <select
+                        class="assignment-card__template-select"
+                        :value="assignment.templateId || ''"
+                        @change="handleTemplateSelection('series-generate', index, $event.target.value)"
+                      >
+                        <option value="">请选择图片类型</option>
+                        <option v-for="template in promptTemplateOptions" :key="template.id" :value="template.id">
+                          {{ template.name }}
+                        </option>
+                      </select>
+                    </div>
                   </div>
-                  <label class="form-field">
+                  <label class="form-field assignment-card__prompt-field--flush">
                     <textarea
                       :value="assignment.prompt"
                       rows="3"
@@ -683,36 +846,6 @@ function appendPromptTemplate(templatePrompt = '') {
           </select>
         </label>
       </template>
-    </div>
-
-    <div v-if="promptImportState.visible" class="prompt-import-modal" @click.self="closePromptImport">
-      <div class="prompt-import-modal__card">
-        <div class="prompt-import-modal__header">
-          <div>
-            <strong>请选择要补充的提示词模板</strong>
-            <span class="section-copy">仅展示自定义提示词，点击后会补充到当前提示词</span>
-          </div>
-          <button class="secondary-action" type="button" @click="closePromptImport">关闭</button>
-        </div>
-        <div class="prompt-import-modal__list scrollbar-hidden">
-          <button
-            v-for="template in customPromptTemplates"
-            :key="template.id"
-            class="prompt-import-modal__item"
-            type="button"
-            @click="appendPromptTemplate(template.prompt)"
-          >
-            <strong>{{ template.name }}</strong>
-            <span>{{ template.category }}</span>
-            <small>{{ template.prompt }}</small>
-          </button>
-          <div v-if="!customPromptTemplates.length" class="task-sidebar-empty">
-            <strong>暂无自定义提示词</strong>
-            <p>请先到提示词库中新增自定义模板。</p>
-          </div>
-        </div>
-        <button class="primary-action" type="button" @click="closePromptImport">补充到当前提示词</button>
-      </div>
     </div>
 
     <footer class="panel-footer">

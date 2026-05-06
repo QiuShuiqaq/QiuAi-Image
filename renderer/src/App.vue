@@ -17,12 +17,20 @@ import {
   getStudioSnapshot,
   importLicenseFile,
   listPromptTemplates,
+  listNegativePromptTemplates,
+  listPromptTagCategories,
   openOutputDirectory,
   pickStudioInputAssets,
   reloadActivation,
+  removeNegativePromptTemplate,
   removePromptTemplate,
+  removePromptTag,
+  removePromptTagCategory,
   saveAdminApiKey,
+  saveNegativePromptTemplate,
   saveSettings,
+  savePromptTag,
+  savePromptTagCategory,
   savePromptTemplate,
   saveStudioDraft,
   stopStudioTask
@@ -112,6 +120,8 @@ const exportItemsByMenu = ref(createEmptyExportItemsByMenu())
 const workspaceDashboard = ref(createEmptyWorkspaceDashboard())
 const hostInfo = ref(createEmptyHostInfo())
 const promptTemplates = ref([])
+const negativePromptTemplates = ref([])
+const promptTagCategories = ref([])
 const actionNotice = reactive({
   visible: false,
   type: 'success',
@@ -139,6 +149,9 @@ let submitButtonStateTimer = null
 let studioRuntimePollTimer = null
 let isRefreshingStudioRuntime = false
 const draftPersistTimers = new Map()
+
+const HIGH_RISK_PROMPT_PATTERNS = ['和原图一致', '保持原样', '不改动布局', '复刻原图', '完全一致', '不要变化']
+const MEDIUM_RISK_PROMPT_PATTERNS = ['尽量不变', '保留原图风格', '轻微修改', '只改一点', '背景不动']
 
 function resolveDefaultModelForMenu() {
   return imageModelOptions[0].value
@@ -219,6 +232,12 @@ function createDraftForm(menuKey) {
   if (menuKey === 'series-design') {
     return {
       globalPrompt: '统一商品图整体风格',
+      negativeTemplateId: '',
+      negativePrompt: '',
+      selectedGlobalTagIds: [],
+      legacyGlobalPrompt: '',
+      defaultAssignmentRatio: '1:1',
+      defaultAssignmentModel: resolveDefaultModelForMenu(menuKey),
       model: resolveDefaultModelForMenu(menuKey),
       taskName: '',
       imageAssignments: [],
@@ -230,6 +249,10 @@ function createDraftForm(menuKey) {
   if (menuKey === 'series-generate') {
     return {
       globalPrompt: '统一商品详情图整体风格',
+      negativeTemplateId: '',
+      negativePrompt: '',
+      selectedGlobalTagIds: [],
+      legacyGlobalPrompt: '',
       model: resolveDefaultModelForMenu(menuKey),
       taskName: '',
       sourceImage: null,
@@ -339,6 +362,16 @@ function normalizeStoredDraft(menuKey, storedDraft = {}) {
     ...storedDraft
   }
 
+  if (menuKey === 'series-design' || menuKey === 'series-generate') {
+    normalizedDraft.selectedGlobalTagIds = Array.isArray(normalizedDraft.selectedGlobalTagIds)
+      ? normalizedDraft.selectedGlobalTagIds.filter((item) => typeof item === 'string' && item.trim())
+      : []
+    normalizedDraft.legacyGlobalPrompt = String(normalizedDraft.legacyGlobalPrompt || '')
+    normalizedDraft.globalPrompt = String(normalizedDraft.globalPrompt || '')
+    normalizedDraft.negativeTemplateId = String(normalizedDraft.negativeTemplateId || '')
+    normalizedDraft.negativePrompt = String(normalizedDraft.negativePrompt || '')
+  }
+
   if (menuKey === 'series-generate') {
     const generateCount = Math.max(1, Math.min(100, Number(normalizedDraft.generateCount) || 1))
     normalizedDraft.generateCount = generateCount
@@ -366,6 +399,10 @@ function replaceDraft(menuKey, nextDraft) {
     ...formDrafts.value,
     [menuKey]: nextDraft
   }
+}
+
+function resetDraftForMenu(menuKey) {
+  replaceDraft(menuKey, normalizeStoredDraft(menuKey, formDrafts.value[menuKey] || createDraftForm(menuKey)))
 }
 
 function upsertTaskIntoState(task) {
@@ -527,8 +564,49 @@ const customPromptTemplates = computed(() => {
   return promptTemplates.value.filter((item) => item.source === 'custom')
 })
 
+const fixedNegativePromptTemplates = computed(() => {
+  return negativePromptTemplates.value.filter((item) => item.source === 'system-fixed')
+})
+
+const customNegativePromptTemplates = computed(() => {
+  return negativePromptTemplates.value.filter((item) => item.source === 'custom')
+})
+
+const allPromptTemplates = computed(() => {
+  return [...fixedPromptTemplates.value, ...customPromptTemplates.value]
+})
+
+const promptTagMap = computed(() => {
+  return new Map(promptTagCategories.value.flatMap((category) => {
+    return (category.tags || []).map((tag) => [tag.id, tag])
+  }))
+})
+
+function buildGlobalPromptFromSelectedTags(menuKey) {
+  const draft = formDrafts.value[menuKey] || {}
+  return (draft.selectedGlobalTagIds || [])
+    .map((tagId) => promptTagMap.value.get(tagId)?.name || '')
+    .filter(Boolean)
+    .join(' ')
+}
+
+function syncDraftGlobalPrompt(menuKey, draft = {}) {
+  if (menuKey !== 'series-design' && menuKey !== 'series-generate') {
+    return draft
+  }
+
+  const nextDraft = {
+    ...draft
+  }
+  const selectedPrompt = (nextDraft.selectedGlobalTagIds || []).length
+    ? buildGlobalPromptFromSelectedTags(menuKey)
+    : ''
+  nextDraft.globalPrompt = selectedPrompt || String(nextDraft.globalPrompt || '')
+  return nextDraft
+}
+
 const currentDraftForm = computed(() => {
-  return formDrafts.value[activeMenu.value] || createDraftForm(activeMenu.value)
+  return syncDraftGlobalPrompt(activeMenu.value, formDrafts.value[activeMenu.value] || createDraftForm(activeMenu.value))
 })
 
 const currentLongRunningHint = computed(() => {
@@ -653,6 +731,22 @@ async function loadPromptTemplateState() {
   }
 }
 
+async function loadNegativePromptTemplateState() {
+  try {
+    negativePromptTemplates.value = await listNegativePromptTemplates()
+  } catch (error) {
+    console.error('Failed to load negative prompt templates', error)
+  }
+}
+
+async function loadPromptTagCategoryState() {
+  try {
+    promptTagCategories.value = await listPromptTagCategories()
+  } catch (error) {
+    console.error('Failed to load prompt tag categories', error)
+  }
+}
+
 async function refreshStudioRuntimeState() {
   if (!isActivated.value) {
     return
@@ -734,7 +828,9 @@ async function handleImportLicense() {
     if (result.status === 'activated') {
       await Promise.all([
         loadStudioSnapshot(),
-        loadPromptTemplateState()
+        loadPromptTemplateState(),
+        loadNegativePromptTemplateState(),
+        loadPromptTagCategoryState()
       ])
       showActionFeedback({
         type: 'success',
@@ -813,19 +909,6 @@ function ensureDraftForMenu(menuKey) {
   replaceDraft(menuKey, createDraftForm(menuKey))
 }
 
-async function resetDraftForMenu(menuKey) {
-  ensureDraftForMenu(menuKey)
-  clearDraftPersistTimer(menuKey)
-  revokeDraftPreviews(formDrafts.value[menuKey] || {})
-  const nextDraft = createDraftForm(menuKey)
-  replaceDraft(menuKey, nextDraft)
-  await persistDraftPatch(menuKey, nextDraft)
-}
-
-async function resetActiveDraftAfterSubmit() {
-  await resetDraftForMenu(activeMenu.value)
-}
-
 function handleMenuSelect(menuKey) {
   // 菜单点击事件预留：后续可在这里接入真实业务工作区切换。
   activeMenu.value = menuKey
@@ -877,8 +960,32 @@ function handleFieldUpdate({ field, value }) {
     }
   }
 
+  if ((activeMenu.value === 'series-design' || activeMenu.value === 'series-generate') && field === 'selectedGlobalTagIds') {
+    nextDraft = {
+      ...currentDraft,
+      selectedGlobalTagIds: Array.isArray(value) ? value : [],
+      legacyGlobalPrompt: '',
+      globalPrompt: ''
+    }
+    nextDraft = syncDraftGlobalPrompt(activeMenu.value, nextDraft)
+    notifyPromptRiskIfNeeded(nextDraft.globalPrompt)
+  }
+
+  if ((activeMenu.value === 'series-design' || activeMenu.value === 'series-generate') && field === 'negativeTemplateId') {
+    nextDraft = applyNegativeTemplateSelection(currentDraft, value)
+  }
+
   replaceDraft(activeMenu.value, nextDraft)
   scheduleDraftPersist(activeMenu.value, nextDraft)
+}
+
+function applyNegativeTemplateSelection(currentDraft, templateId) {
+  const matchedTemplate = negativePromptTemplates.value.find((item) => item.id === templateId)
+  return {
+    ...currentDraft,
+    negativeTemplateId: templateId,
+    negativePrompt: matchedTemplate?.prompt || ''
+  }
 }
 
 async function applySingleImageSelection(file) {
@@ -931,7 +1038,11 @@ async function applySeriesDesignSelection(fileList = []) {
     ...createImageAsset(file, 'series-design'),
     selected: true,
     prompt: '',
-    imageType: ''
+    imageType: '',
+    size: formDrafts.value['series-design']?.defaultAssignmentRatio || formDrafts.value['series-design']?.size || '1:1',
+    model: formDrafts.value['series-design']?.defaultAssignmentModel || formDrafts.value['series-design']?.model || '',
+    tagIds: [],
+    tagNames: []
   }))
   const nextDraft = {
     ...formDrafts.value['series-design'],
@@ -1129,6 +1240,60 @@ function validateCurrentTaskBeforeSubmit() {
   return ''
 }
 
+function detectPromptRisk(promptText = '') {
+  const normalizedPrompt = String(promptText || '')
+  const highRiskKeyword = HIGH_RISK_PROMPT_PATTERNS.find((item) => normalizedPrompt.includes(item))
+  if (highRiskKeyword) {
+    return {
+      level: 'warning',
+      keyword: highRiskKeyword,
+      message: `检测到高风险提示词“${highRiskKeyword}”，可能导致保留原图或生成失败`
+    }
+  }
+
+  const mediumRiskKeyword = MEDIUM_RISK_PROMPT_PATTERNS.find((item) => normalizedPrompt.includes(item))
+  if (mediumRiskKeyword) {
+    return {
+      level: 'warning',
+      keyword: mediumRiskKeyword,
+      message: `检测到风险提示词“${mediumRiskKeyword}”，可能导致保留原图或生成失败`
+    }
+  }
+
+  return null
+}
+
+function notifyPromptRiskIfNeeded(promptText = '') {
+  const promptRisk = detectPromptRisk(promptText)
+  if (!promptRisk) {
+    return
+  }
+
+  showActionFeedback({
+    type: promptRisk.level,
+    title: '提示',
+    message: promptRisk.message
+  })
+}
+
+function buildDraftForSubmit(menuKey) {
+  const draft = normalizeStoredDraft(menuKey, currentDraftForm.value)
+
+  if (menuKey === 'series-design' || menuKey === 'series-generate') {
+    const globalPrompt = buildGlobalPromptFromSelectedTags(menuKey) || String(draft.globalPrompt || draft.legacyGlobalPrompt || '')
+    return {
+      ...draft,
+      globalPrompt,
+      negativeTemplateId: String(draft.negativeTemplateId || ''),
+      negativePrompt: String(draft.negativePrompt || ''),
+      legacyGlobalPrompt: String(draft.legacyGlobalPrompt || ''),
+      selectedGlobalTagIds: Array.isArray(draft.selectedGlobalTagIds) ? draft.selectedGlobalTagIds : []
+    }
+  }
+
+  return draft
+}
+
 async function handleSubmitTask() {
   if (submitButtonState.value !== 'idle') {
     return
@@ -1157,13 +1322,22 @@ async function handleSubmitTask() {
   try {
     setSubmitButtonState('submitting')
     clearDraftPersistTimer(activeMenu.value)
+    resetDraftForMenu(activeMenu.value)
+    const draftToSubmit = buildDraftForSubmit(activeMenu.value)
+    const promptRisk = detectPromptRisk(draftToSubmit.globalPrompt)
+    if (promptRisk) {
+      showActionFeedback({
+        type: promptRisk.level,
+        title: '提示',
+        message: promptRisk.message
+      })
+    }
     const createdTask = await createStudioTask({
       menuKey: activeMenu.value,
-      draft: formDrafts.value[activeMenu.value]
+      draft: draftToSubmit
     })
     upsertTaskIntoState(createdTask)
     selectedExportIds.value = []
-    await resetActiveDraftAfterSubmit()
     setSubmitButtonState('success')
     showActionFeedback({
       type: 'success',
@@ -1616,6 +1790,7 @@ async function handleSavePromptTemplate(payload) {
   try {
     await savePromptTemplate(payload)
     await loadPromptTemplateState()
+    notifyPromptRiskIfNeeded(payload.prompt)
     showActionFeedback({
       type: 'success',
       title: '成功',
@@ -1627,6 +1802,83 @@ async function handleSavePromptTemplate(payload) {
       type: 'error',
       title: '失败',
       message: `提示词模板保存失败：${buildErrorMessage(error, '模板保存未完成')}`
+    })
+  }
+}
+
+async function handleSavePromptTagCategory(payload) {
+  try {
+    await savePromptTagCategory(payload)
+    await loadPromptTagCategoryState()
+    showActionFeedback({
+      type: 'success',
+      title: '成功',
+      message: '标签分类已保存'
+    })
+  } catch (error) {
+    console.error('Failed to save prompt tag category', error)
+    showActionFeedback({
+      type: 'error',
+      title: '失败',
+      message: `标签分类保存失败：${buildErrorMessage(error, '标签分类保存未完成')}`
+    })
+  }
+}
+
+async function handleSavePromptTag(payload) {
+  try {
+    await savePromptTag(payload)
+    await loadPromptTagCategoryState()
+    notifyPromptRiskIfNeeded(payload.name)
+    showActionFeedback({
+      type: 'success',
+      title: '成功',
+      message: '标签已保存'
+    })
+  } catch (error) {
+    console.error('Failed to save prompt tag', error)
+    showActionFeedback({
+      type: 'error',
+      title: '失败',
+      message: `标签保存失败：${buildErrorMessage(error, '标签保存未完成')}`
+    })
+  }
+}
+
+async function handleRemovePromptTag(payload) {
+  try {
+    await removePromptTag(payload)
+    await loadPromptTagCategoryState()
+    showActionFeedback({
+      type: 'success',
+      title: '成功',
+      message: '标签已删除'
+    })
+  } catch (error) {
+    console.error('Failed to remove prompt tag', error)
+    showActionFeedback({
+      type: 'error',
+      title: '失败',
+      message: `标签删除失败：${buildErrorMessage(error, '标签删除未完成')}`
+    })
+  }
+}
+
+async function handleRemovePromptTagCategory(payload) {
+  try {
+    await removePromptTagCategory(payload)
+    await loadPromptTagCategoryState()
+    showActionFeedback({
+      type: 'success',
+      title: '成功',
+      message: '标签分类已删除'
+    })
+  } catch (error) {
+    console.error('Failed to remove prompt tag category', error)
+    showActionFeedback({
+      type: 'error',
+      title: '失败',
+      message: `标签分类删除失败：${buildErrorMessage(error, '标签分类删除未完成')}`
     })
   }
 }
@@ -1652,13 +1904,55 @@ async function handleRemovePromptTemplate(templateId) {
   }
 }
 
+async function handleSaveNegativePromptTemplate(payload) {
+  try {
+    await saveNegativePromptTemplate(payload)
+    await loadNegativePromptTemplateState()
+    showActionFeedback({
+      type: 'success',
+      title: '成功',
+      message: '反向提示词模板已保存'
+    })
+  } catch (error) {
+    console.error('Failed to save negative prompt template', error)
+    showActionFeedback({
+      type: 'error',
+      title: '失败',
+      message: `反向提示词模板保存失败：${buildErrorMessage(error, '模板保存未完成')}`
+    })
+  }
+}
+
+async function handleRemoveNegativePromptTemplate(templateId) {
+  try {
+    await removeNegativePromptTemplate({
+      id: templateId
+    })
+    await loadNegativePromptTemplateState()
+    showActionFeedback({
+      type: 'success',
+      title: '成功',
+      message: '反向提示词模板已删除'
+    })
+  } catch (error) {
+    console.error('Failed to remove negative prompt template', error)
+    showActionFeedback({
+      type: 'error',
+      title: '失败',
+      message: `反向提示词模板删除失败：${buildErrorMessage(error, '模板删除未完成')}`
+    })
+  }
+}
+
 onMounted(() => {
   void (async () => {
     await loadActivationState()
     if (isActivated.value) {
       await Promise.all([
         loadStudioSnapshot(),
-        loadPromptTemplateState()
+        loadPromptTemplateState(),
+        loadNegativePromptTemplateState(),
+        loadPromptTagCategoryState()
       ])
     }
   })()
@@ -1763,6 +2057,10 @@ onBeforeUnmount(() => {
           :is-saving-total-credits="isSavingTotalCredits"
           :fixed-prompt-templates="fixedPromptTemplates"
           :custom-prompt-templates="customPromptTemplates"
+          :fixed-negative-prompt-templates="fixedNegativePromptTemplates"
+          :custom-negative-prompt-templates="customNegativePromptTemplates"
+          :all-prompt-templates="allPromptTemplates"
+          :prompt-tag-categories="promptTagCategories"
           @update-field="handleFieldUpdate"
           @submit-task="handleSubmitTask"
           @toggle-export-item="handleToggleExportItem"
@@ -1778,6 +2076,12 @@ onBeforeUnmount(() => {
           @save-total-credits="handleSaveTotalCredits"
           @save-prompt-template="handleSavePromptTemplate"
           @remove-prompt-template="handleRemovePromptTemplate"
+          @save-negative-prompt-template="handleSaveNegativePromptTemplate"
+          @remove-negative-prompt-template="handleRemoveNegativePromptTemplate"
+          @save-prompt-tag-category="handleSavePromptTagCategory"
+          @save-prompt-tag="handleSavePromptTag"
+          @remove-prompt-tag="handleRemovePromptTag"
+          @remove-prompt-tag-category="handleRemovePromptTagCategory"
           @update-upload-directory-draft="handleUploadDirectoryDraftUpdate"
           @save-upload-directory="handleSaveUploadDirectory"
         />

@@ -78,6 +78,90 @@ describe('desktopBridge', () => {
     expect(storage.get('qiuai-browser-settings')).toContain('sk-browser')
   })
 
+  it('falls back to browser storage for negative prompt templates when the electron bridge is unavailable', async () => {
+    const storage = new Map()
+    window.localStorage = {
+      getItem(key) {
+        return storage.has(key) ? storage.get(key) : null
+      },
+      setItem(key, value) {
+        storage.set(key, value)
+      }
+    }
+
+    const {
+      listNegativePromptTemplates,
+      saveNegativePromptTemplate,
+      removeNegativePromptTemplate
+    } = await import('../../renderer/src/services/desktopBridge.js')
+
+    const defaults = await listNegativePromptTemplates()
+    expect(defaults.some((item) => item.name === '电商通用')).toBe(true)
+    expect(defaults.some((item) => item.name === '电商模特')).toBe(true)
+    expect(defaults.some((item) => item.name === '电商静物')).toBe(true)
+
+    const saved = await saveNegativePromptTemplate({
+      name: '服饰限制',
+      category: '反向提示词',
+      prompt: '穿模，线头'
+    })
+
+    expect(saved.name).toBe('服饰限制')
+
+    const afterSave = await listNegativePromptTemplates()
+    expect(afterSave.some((item) => item.id === saved.id)).toBe(true)
+
+    await removeNegativePromptTemplate({
+      id: saved.id
+    })
+
+    const afterRemove = await listNegativePromptTemplates()
+    expect(afterRemove.some((item) => item.id === saved.id)).toBe(false)
+    expect(storage.get('qiuai-browser-negative-prompts')).toContain('negative-common')
+  })
+
+  it('invokes negative prompt template channels through the desktop bridge', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce([{ id: 'negative-common', name: '电商通用' }])
+      .mockResolvedValueOnce({ id: 'negative-custom', name: '服饰限制', prompt: '穿模，线头' })
+      .mockResolvedValueOnce({ ok: true })
+
+    window.qiuai = {
+      channels: {
+        NEGATIVE_PROMPTS_LIST: 'negative-prompts:list',
+        NEGATIVE_PROMPTS_SAVE: 'negative-prompts:save',
+        NEGATIVE_PROMPTS_REMOVE: 'negative-prompts:remove'
+      },
+      invoke
+    }
+
+    const {
+      listNegativePromptTemplates,
+      saveNegativePromptTemplate,
+      removeNegativePromptTemplate
+    } = await import('../../renderer/src/services/desktopBridge.js')
+
+    await listNegativePromptTemplates()
+    await saveNegativePromptTemplate({
+      name: '服饰限制',
+      category: '反向提示词',
+      prompt: '穿模，线头'
+    })
+    await removeNegativePromptTemplate({
+      id: 'negative-custom'
+    })
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'negative-prompts:list', undefined)
+    expect(invoke).toHaveBeenNthCalledWith(2, 'negative-prompts:save', {
+      name: '服饰限制',
+      category: '反向提示词',
+      prompt: '穿模，线头'
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, 'negative-prompts:remove', {
+      id: 'negative-custom'
+    })
+  })
+
   it('applies browser-side credit adjustments when the desktop bridge is unavailable', async () => {
     const storage = new Map()
     window.localStorage = {
@@ -171,7 +255,10 @@ describe('desktopBridge', () => {
         {
           id: 'image-1',
           selected: true,
-          prompt: '统一风格'
+          prompt: '统一风格',
+          size: '4:3',
+          model: 'nano-banana-fast',
+          tagIds: ['tag-quality-hd']
         }
       ]
     })
@@ -189,7 +276,10 @@ describe('desktopBridge', () => {
         {
           id: 'image-1',
           selected: true,
-          prompt: '统一风格'
+          prompt: '统一风格',
+          size: '4:3',
+          model: 'nano-banana-fast',
+          tagIds: ['tag-quality-hd']
         }
       ]
     })

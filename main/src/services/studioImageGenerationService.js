@@ -89,6 +89,27 @@ function composePrompt(parts = []) {
     .join('\n')
 }
 
+function normalizeNegativePromptText(negativePrompt = '') {
+  return String(negativePrompt || '')
+    .split(/\r?\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join('，')
+}
+
+function composePromptWithNegativeConstraints(parts = [], negativePrompt = '') {
+  const prompt = composePrompt(parts)
+  const normalizedNegativePrompt = normalizeNegativePromptText(negativePrompt)
+
+  if (!normalizedNegativePrompt) {
+    return prompt
+  }
+
+  return [prompt, `严格避免以下问题：${normalizedNegativePrompt}`]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 function normalizeSingleImageModels(compareModels = []) {
   const allowedModels = new Set([
     'gpt-image-2',
@@ -162,27 +183,29 @@ function isModerationFailureMessage(message = '') {
     normalizedMessage === '图片任务失败：输出内容触发审核限制'
 }
 
-function createResultCardFromSavedImage(savedImage = {}, { id, model, title, promptSummary, sourceImageName }) {
+function createResultCardFromSavedImage(savedImage = {}, { id, model, title, promptSummary, sourceImageName, promptFinal = '' }) {
   return {
     id,
     model,
     title,
     preview: savedImage.previewUrl || '',
     promptSummary,
+    promptFinal,
     sourceImageName,
     status: '已完成',
     savedPath: savedImage.savedPath || ''
   }
 }
 
-function createSeriesOutputFromSavedImage(savedImage = {}, { id, title, model, sourceTag }) {
+function createSeriesOutputFromSavedImage(savedImage = {}, { id, title, model, sourceTag, promptFinal = '' }) {
   return {
     id,
     title,
     model,
     preview: savedImage.previewUrl || '',
     savedPath: savedImage.savedPath || '',
-    sourceTag
+    sourceTag,
+    promptFinal
   }
 }
 
@@ -275,10 +298,17 @@ function buildSeriesDesignOutputDescriptors(assignments = [], templatePromptMap 
 
     return {
       ...assignment,
+      model: assignment.model || '',
+      size: assignment.size || '1:1',
+      tagNames: Array.isArray(assignment.tagNames) ? assignment.tagNames : [],
       outputTitle: SERIES_GENERATE_IMAGE_TYPE_CONFIG[assignment.imageType]
         ? `${config.outputLabel}${currentCount}`
         : config.outputLabel,
-      composedPrompt: composePrompt([resolveImageTypeInstruction(assignment.imageType, templatePromptMap), assignment.prompt])
+      composedPrompt: composePrompt([
+        resolveImageTypeInstruction(assignment.imageType, templatePromptMap),
+        ...(Array.isArray(assignment.tagNames) ? assignment.tagNames : []),
+        assignment.prompt
+      ])
     }
   })
 }
@@ -558,10 +588,11 @@ function createStudioImageGenerationService({
       onProgress
     })
     const comparisonResults = await mapWithConcurrency(compareModels, async (model, index) => {
+      const promptFinal = composePrompt([draft.prompt, draft.notes])
       const completedResult = await executeRemoteImageTask({
         jobLabel: `single-image-${index + 1}`,
         model,
-        prompt: composePrompt([draft.prompt, draft.notes]),
+        prompt: promptFinal,
         aspectRatio: resolveAspectRatio(draft.size || '1:1'),
         imageSize: resolveImageSize(model),
         filePaths: [sourceFilePath],
@@ -580,6 +611,7 @@ function createStudioImageGenerationService({
         model,
         title: `${model} 对比结果`,
         promptSummary: draft.prompt || '',
+        promptFinal,
         sourceImageName: draft.sourceImage?.name || ''
       })
     })
@@ -597,10 +629,11 @@ function createStudioImageGenerationService({
 
   async function generateSingleDesignResults({ draft, taskId, outputDirectory, onProgress }) {
     const sourceFilePath = draft.sourceImage?.storedPath || draft.sourceImage?.path || ''
+    const promptFinal = composePrompt([draft.prompt, draft.notes])
     const completedResult = await executeRemoteImageTask({
       jobLabel: 'single-design-1',
       model: draft.model,
-      prompt: composePrompt([draft.prompt, draft.notes]),
+      prompt: promptFinal,
       aspectRatio: resolveAspectRatio(draft.size || '1:1'),
       imageSize: resolveImageSize(draft.model),
       filePaths: sourceFilePath ? [sourceFilePath] : [],
@@ -618,6 +651,7 @@ function createStudioImageGenerationService({
         model: draft.model,
         title: `${draft.model} 设计结果`,
         promptSummary: draft.prompt || '',
+        promptFinal,
         sourceImageName: draft.sourceImage?.name || ''
       })
     ]
@@ -686,12 +720,16 @@ function createStudioImageGenerationService({
             const sourceFilePath = assignment.storedPath || assignment.path || ''
             const subtaskIndex = (batchIndex * selectedAssignments.length) + selectedIndex
             try {
+              const promptFinal = composePromptWithNegativeConstraints(
+                [draft.globalPrompt, assignment.composedPrompt],
+                draft.negativePrompt
+              )
               const completedResult = await executeRemoteImageTask({
                 jobLabel: `series-design-${batchIndex + 1}-${selectedIndex + 1}`,
-                model: draft.model,
-                prompt: composePrompt([draft.globalPrompt, assignment.composedPrompt]),
-                aspectRatio: resolveAspectRatio(draft.size || '1:1'),
-                imageSize: resolveImageSize(draft.model),
+                model: assignment.model || draft.model,
+                prompt: promptFinal,
+                aspectRatio: resolveAspectRatio(assignment.size || draft.size || '1:1'),
+                imageSize: resolveImageSize(assignment.model || draft.model),
                 filePaths: [sourceFilePath],
                 outputDirectory,
                 onProgress: async ({ progress, status }) => {
@@ -709,8 +747,9 @@ function createStudioImageGenerationService({
                 output: createSeriesOutputFromSavedImage(savedImage, {
                   id: `${taskId}-series-design-${batchIndex + 1}-${selectedIndex + 1}`,
                   title: assignment.outputTitle,
-                  model: draft.model,
-                  sourceTag: 'generated'
+                  model: assignment.model || draft.model,
+                  sourceTag: 'generated',
+                  promptFinal
                 })
               }
             } catch (error) {
@@ -797,10 +836,14 @@ function createStudioImageGenerationService({
         outputDescriptors.map((promptAssignment, outputIndex) => {
           return async () => {
             const subtaskIndex = (batchIndex * generateCount) + outputIndex
+            const promptFinal = composePromptWithNegativeConstraints(
+              [draft.globalPrompt, promptAssignment.composedPrompt],
+              draft.negativePrompt
+            )
             const completedResult = await executeRemoteImageTask({
               jobLabel: `series-generate-${batchIndex + 1}-${outputIndex + 1}`,
               model: draft.model,
-              prompt: composePrompt([draft.globalPrompt, promptAssignment.composedPrompt]),
+              prompt: promptFinal,
               aspectRatio: resolveAspectRatio(draft.size || '1:1'),
               imageSize: resolveImageSize(draft.model),
               filePaths: [sourceFilePath],
@@ -818,7 +861,8 @@ function createStudioImageGenerationService({
               id: `${taskId}-series-generate-${batchIndex + 1}-${outputIndex + 1}`,
               title: promptAssignment.outputTitle,
               model: draft.model,
-              sourceTag: 'generated'
+              sourceTag: 'generated',
+              promptFinal
             })
           }
         }),

@@ -2,6 +2,8 @@ const API_KEY_SLOT_COUNT = 2
 const BROWSER_SETTINGS_KEY = 'qiuai-browser-settings'
 const BROWSER_STUDIO_KEY = 'qiuai-browser-studio'
 const BROWSER_PROMPTS_KEY = 'qiuai-browser-prompts'
+const BROWSER_NEGATIVE_PROMPTS_KEY = 'qiuai-browser-negative-prompts'
+const BROWSER_PROMPT_TAGS_KEY = 'qiuai-browser-prompt-tags'
 const BROWSER_CREDIT_HISTORY_LIMIT = 20
 
 const defaultBrowserCreditState = {
@@ -99,6 +101,227 @@ const defaultBrowserPromptTemplates = [
     name: '颜色图',
     category: '按钮提示词',
     prompt: '按颜色图生成：输出产品颜色变化效果图，保持产品结构一致，仅突出颜色差异；禁止改变主体款式。',
+    source: 'system-fixed'
+  }
+]
+
+const defaultBrowserPromptTagCategories = [
+  {
+    id: 'tag-category-art-style',
+    name: '画风风格',
+    tags: [
+      {
+        id: 'tag-art-style-realistic',
+        name: '写实'
+      },
+      {
+        id: 'tag-art-style-anime',
+        name: '二次元'
+      },
+      {
+        id: 'tag-art-style-ink',
+        name: '国风水墨'
+      },
+      {
+        id: 'tag-art-style-oil',
+        name: '油画'
+      },
+      {
+        id: 'tag-art-style-watercolor',
+        name: '水彩'
+      },
+      {
+        id: 'tag-art-style-pixel',
+        name: '像素风'
+      },
+      {
+        id: 'tag-art-style-clay',
+        name: '黏土风'
+      },
+      {
+        id: 'tag-art-style-miyazaki',
+        name: '宫崎骏风'
+      },
+      {
+        id: 'tag-art-style-illustration',
+        name: '插画风'
+      },
+      {
+        id: 'tag-art-style-3d',
+        name: '3D 渲染'
+      }
+    ]
+  },
+  {
+    id: 'tag-category-shot-composition',
+    name: '构图镜头',
+    tags: [
+      {
+        id: 'tag-shot-close-up',
+        name: '特写'
+      },
+      {
+        id: 'tag-shot-half-body',
+        name: '半身'
+      },
+      {
+        id: 'tag-shot-wide',
+        name: '全景'
+      },
+      {
+        id: 'tag-shot-top-down',
+        name: '俯拍'
+      },
+      {
+        id: 'tag-shot-low-angle',
+        name: '仰拍'
+      },
+      {
+        id: 'tag-shot-eye-level',
+        name: '平视'
+      },
+      {
+        id: 'tag-shot-negative-space',
+        name: '留白构图'
+      },
+      {
+        id: 'tag-shot-cinematic',
+        name: '电影感镜头'
+      },
+      {
+        id: 'tag-shot-centered',
+        name: '居中构图'
+      }
+    ]
+  },
+  {
+    id: 'tag-category-lighting-tone',
+    name: '光影色调',
+    tags: [
+      {
+        id: 'tag-light-backlit',
+        name: '逆光'
+      },
+      {
+        id: 'tag-light-soft',
+        name: '柔光'
+      },
+      {
+        id: 'tag-light-god-rays',
+        name: '丁达尔光'
+      },
+      {
+        id: 'tag-light-neon',
+        name: '霓虹光'
+      },
+      {
+        id: 'tag-light-candle',
+        name: '烛光'
+      },
+      {
+        id: 'tag-tone-warm',
+        name: '暖色调'
+      },
+      {
+        id: 'tag-tone-cool',
+        name: '冷色调'
+      },
+      {
+        id: 'tag-tone-morandi',
+        name: '莫兰迪'
+      },
+      {
+        id: 'tag-tone-high-saturation',
+        name: '高饱和'
+      },
+      {
+        id: 'tag-tone-low-gray',
+        name: '低灰调'
+      }
+    ]
+  },
+  {
+    id: 'tag-category-material-texture',
+    name: '材质质感',
+    tags: [
+      {
+        id: 'tag-material-silk',
+        name: '丝绸'
+      },
+      {
+        id: 'tag-material-metal-matte',
+        name: '金属磨砂'
+      },
+      {
+        id: 'tag-material-glass',
+        name: '玻璃通透'
+      },
+      {
+        id: 'tag-material-fur',
+        name: '皮毛绒毛'
+      },
+      {
+        id: 'tag-material-wood',
+        name: '木质纹理'
+      },
+      {
+        id: 'tag-material-pearl-gradient',
+        name: '珠光渐变'
+      }
+    ]
+  },
+  {
+    id: 'tag-category-quality-params',
+    name: '画质参数',
+    tags: [
+      {
+        id: 'tag-quality-8k',
+        name: '8K'
+      },
+      {
+        id: 'tag-quality-ultra-hd',
+        name: '超高清'
+      },
+      {
+        id: 'tag-quality-extreme-detail',
+        name: '极致细节'
+      },
+      {
+        id: 'tag-quality-hair-detail',
+        name: '发丝级细节'
+      },
+      {
+        id: 'tag-quality-master',
+        name: '大师画质'
+      },
+      {
+        id: 'tag-quality-no-grain',
+        name: '无颗粒感'
+      }
+    ]
+  }
+]
+
+const defaultBrowserNegativePromptTemplates = [
+  {
+    id: 'negative-common',
+    name: '电商通用',
+    category: '反向提示词',
+    prompt: '水印，logo，文字，广告标，多余贴纸，杂乱背景，路人乱入，多余人物，画面变形，产品扭曲，边缘模糊，低清像素，反光杂乱，阴影错乱，拼接痕迹，瑕疵破损，掉色色差，多余杂物，构图歪斜，裁剪不全，噪点颗粒',
+    source: 'system-fixed'
+  },
+  {
+    id: 'negative-model',
+    name: '电商模特',
+    category: '反向提示词',
+    prompt: '畸形身材，比例失调，歪脸丑脸，五官崩坏，大小眼，高低肩，驼背，假胸，肢体变形，多手指，手部崩坏，妆容怪异，发型杂乱，服装褶皱崩坏，衣服变形，走光，多余配饰，背景路人，水印文字，滤镜过度，假面网红脸，肤色斑驳',
+    source: 'system-fixed'
+  },
+  {
+    id: 'negative-still-life',
+    name: '电商静物',
+    category: '反向提示词',
+    prompt: '产品变形，造型扭曲，破损裂痕，划痕瑕疵，色差严重，反光刺眼，倒影错乱，多余杂物，灰尘污渍，包装残缺，文字乱码，logo 乱印，边缘虚化，对焦不准，重叠产品，多余摆件，背景花哨，阴影脏乱，低质感塑料感',
     source: 'system-fixed'
   }
 ]
@@ -392,6 +615,213 @@ function getBrowserPromptTemplates() {
   return readBrowserState(BROWSER_PROMPTS_KEY, defaultBrowserPromptTemplates)
 }
 
+function normalizeBrowserNegativePromptTemplate(template = {}) {
+  return {
+    id: String(template.id || ''),
+    name: String(template.name || '').trim(),
+    category: String(template.category || '反向提示词').trim(),
+    prompt: String(template.prompt || '').trim(),
+    source: template.source === 'system-fixed' ? 'system-fixed' : 'custom'
+  }
+}
+
+function mergeDefaultBrowserNegativePromptTemplates(templates = []) {
+  const incomingTemplates = Array.isArray(templates)
+    ? templates.map((template) => normalizeBrowserNegativePromptTemplate(template))
+    : []
+  const incomingTemplateMap = new Map(incomingTemplates.filter((template) => template.id).map((template) => [template.id, template]))
+  const customTemplates = incomingTemplates.filter((template) => {
+    return template.id && !defaultBrowserNegativePromptTemplates.find((item) => item.id === template.id)
+  })
+
+  return [
+    ...defaultBrowserNegativePromptTemplates.map((defaultTemplate) => {
+      const matchedTemplate = incomingTemplateMap.get(defaultTemplate.id)
+      return normalizeBrowserNegativePromptTemplate({
+        ...defaultTemplate,
+        ...(matchedTemplate || {})
+      })
+    }),
+    ...customTemplates
+  ]
+}
+
+function getBrowserNegativePromptTemplates() {
+  const storedTemplates = readBrowserState(BROWSER_NEGATIVE_PROMPTS_KEY, defaultBrowserNegativePromptTemplates)
+  const normalizedTemplates = mergeDefaultBrowserNegativePromptTemplates(storedTemplates)
+  writeBrowserState(BROWSER_NEGATIVE_PROMPTS_KEY, normalizedTemplates)
+  return normalizedTemplates
+}
+
+function saveBrowserNegativePromptTemplate(payload = {}) {
+  const currentTemplates = getBrowserNegativePromptTemplates()
+  const existingTemplate = currentTemplates.find((item) => item.id === payload.id)
+  const nextTemplate = normalizeBrowserNegativePromptTemplate({
+    id: existingTemplate?.source === 'system-fixed'
+      ? existingTemplate.id
+      : (payload.id || `browser-negative-template-${Date.now()}`),
+    name: payload.name || existingTemplate?.name || '',
+    category: payload.category || existingTemplate?.category || '反向提示词',
+    prompt: payload.prompt || '',
+    source: existingTemplate?.source === 'system-fixed' ? 'system-fixed' : 'custom'
+  })
+  const nextTemplates = [
+    ...currentTemplates.filter((item) => item.id !== nextTemplate.id),
+    nextTemplate
+  ]
+  writeBrowserState(BROWSER_NEGATIVE_PROMPTS_KEY, mergeDefaultBrowserNegativePromptTemplates(nextTemplates))
+  return nextTemplate
+}
+
+function removeBrowserNegativePromptTemplate(payload = {}) {
+  const currentTemplates = getBrowserNegativePromptTemplates()
+  const targetTemplate = currentTemplates.find((item) => item.id === payload.id)
+  if (targetTemplate?.source === 'system-fixed') {
+    return { ok: true }
+  }
+  writeBrowserState(
+    BROWSER_NEGATIVE_PROMPTS_KEY,
+    mergeDefaultBrowserNegativePromptTemplates(currentTemplates.filter((item) => item.id !== payload.id))
+  )
+  return { ok: true }
+}
+
+function normalizeBrowserPromptTag(tag = {}) {
+  return {
+    id: String(tag.id || ''),
+    name: String(tag.name || '').trim()
+  }
+}
+
+function normalizeBrowserPromptTagCategory(category = {}) {
+  return {
+    id: String(category.id || ''),
+    name: String(category.name || '').trim(),
+    tags: Array.isArray(category.tags)
+      ? category.tags.map((tag) => normalizeBrowserPromptTag(tag)).filter((tag) => tag.id)
+      : []
+  }
+}
+
+function mergeDefaultBrowserPromptTagCategories(categories = []) {
+  const incomingCategories = Array.isArray(categories)
+    ? categories.map((category) => normalizeBrowserPromptTagCategory(category))
+    : []
+  const incomingCategoryMap = new Map(incomingCategories.filter((category) => category.id).map((category) => [category.id, category]))
+  const customCategories = incomingCategories.filter((category) => {
+    return category.id && !defaultBrowserPromptTagCategories.find((item) => item.id === category.id)
+  })
+
+  return [
+    ...defaultBrowserPromptTagCategories.map((defaultCategory) => {
+      const matchedCategory = incomingCategoryMap.get(defaultCategory.id)
+      return normalizeBrowserPromptTagCategory({
+        ...defaultCategory,
+        ...(matchedCategory || {}),
+        tags: matchedCategory?.tags || defaultCategory.tags
+      })
+    }),
+    ...customCategories
+  ]
+}
+
+function getBrowserPromptTagCategories() {
+  const storedCategories = readBrowserState(BROWSER_PROMPT_TAGS_KEY, defaultBrowserPromptTagCategories)
+  const normalizedCategories = mergeDefaultBrowserPromptTagCategories(storedCategories)
+  writeBrowserState(BROWSER_PROMPT_TAGS_KEY, normalizedCategories)
+  return normalizedCategories
+}
+
+function saveBrowserPromptTagCategory(payload = {}) {
+  const currentCategories = getBrowserPromptTagCategories()
+  const existingCategory = currentCategories.find((item) => item.id === payload.id)
+  const nextCategory = normalizeBrowserPromptTagCategory({
+    id: existingCategory?.id || payload.id || `browser-tag-category-${Date.now()}`,
+    name: payload.name || existingCategory?.name || '',
+    tags: existingCategory?.tags || []
+  })
+
+  if (!nextCategory.name) {
+    throw new Error('标签分类名称不能为空')
+  }
+
+  const nextCategories = [
+    ...currentCategories.filter((item) => item.id !== nextCategory.id),
+    nextCategory
+  ]
+  writeBrowserState(BROWSER_PROMPT_TAGS_KEY, nextCategories)
+  return nextCategory
+}
+
+function saveBrowserPromptTag(payload = {}) {
+  const currentCategories = getBrowserPromptTagCategories()
+  const categoryId = String(payload.categoryId || '')
+  const matchedCategory = currentCategories.find((item) => item.id === categoryId)
+  if (!matchedCategory) {
+    throw new Error('标签分类不存在')
+  }
+
+  const existingTag = matchedCategory.tags.find((item) => item.id === payload.id)
+  const nextTag = normalizeBrowserPromptTag({
+    id: existingTag?.id || payload.id || `browser-tag-${Date.now()}`,
+    name: payload.name || existingTag?.name || ''
+  })
+
+  if (!nextTag.name) {
+    throw new Error('标签名称不能为空')
+  }
+
+  const nextCategories = currentCategories.map((category) => {
+    if (category.id !== categoryId) {
+      return category
+    }
+
+    return normalizeBrowserPromptTagCategory({
+      ...category,
+      tags: [
+        ...category.tags.filter((item) => item.id !== nextTag.id),
+        nextTag
+      ]
+    })
+  })
+
+  writeBrowserState(BROWSER_PROMPT_TAGS_KEY, nextCategories)
+  return nextTag
+}
+
+function removeBrowserPromptTag(payload = {}) {
+  const currentCategories = getBrowserPromptTagCategories()
+  const nextCategories = currentCategories.map((category) => {
+    if (category.id !== payload.categoryId) {
+      return category
+    }
+
+    return normalizeBrowserPromptTagCategory({
+      ...category,
+      tags: category.tags.filter((item) => item.id !== payload.tagId)
+    })
+  })
+
+  writeBrowserState(BROWSER_PROMPT_TAGS_KEY, nextCategories)
+  return {
+    ok: true
+  }
+}
+
+function removeBrowserPromptTagCategory(payload = {}) {
+  const currentCategories = getBrowserPromptTagCategories()
+  const targetCategory = currentCategories.find((item) => item.id === payload.id)
+
+  if (targetCategory && (targetCategory.tags || []).length > 0) {
+    throw new Error('请先删除分类内的标签')
+  }
+
+  writeBrowserState(BROWSER_PROMPT_TAGS_KEY, currentCategories.filter((item) => item.id !== payload.id))
+  return {
+    ok: true
+  }
+}
+
 function saveBrowserPromptTemplate(payload = {}) {
   const currentTemplates = getBrowserPromptTemplates()
   const existingTemplate = currentTemplates.find((item) => item.id === payload.id)
@@ -501,6 +931,62 @@ export function removePromptTemplate (payload) {
     return Promise.resolve(removeBrowserPromptTemplate(payload))
   }
   return invoke(getChannel('PROMPTS_REMOVE'), payload)
+}
+
+export function listNegativePromptTemplates () {
+  if (!hasBridge()) {
+    return Promise.resolve(getBrowserNegativePromptTemplates())
+  }
+  return invoke(getChannel('NEGATIVE_PROMPTS_LIST'))
+}
+
+export function saveNegativePromptTemplate (payload) {
+  if (!hasBridge()) {
+    return Promise.resolve(saveBrowserNegativePromptTemplate(payload))
+  }
+  return invoke(getChannel('NEGATIVE_PROMPTS_SAVE'), payload)
+}
+
+export function removeNegativePromptTemplate (payload) {
+  if (!hasBridge()) {
+    return Promise.resolve(removeBrowserNegativePromptTemplate(payload))
+  }
+  return invoke(getChannel('NEGATIVE_PROMPTS_REMOVE'), payload)
+}
+
+export function listPromptTagCategories () {
+  if (!hasBridge()) {
+    return Promise.resolve(getBrowserPromptTagCategories())
+  }
+  return invoke(getChannel('PROMPT_TAGS_LIST'))
+}
+
+export function savePromptTagCategory (payload) {
+  if (!hasBridge()) {
+    return Promise.resolve(saveBrowserPromptTagCategory(payload))
+  }
+  return invoke(getChannel('PROMPT_TAGS_SAVE_CATEGORY'), payload)
+}
+
+export function savePromptTag (payload) {
+  if (!hasBridge()) {
+    return Promise.resolve(saveBrowserPromptTag(payload))
+  }
+  return invoke(getChannel('PROMPT_TAGS_SAVE_TAG'), payload)
+}
+
+export function removePromptTag (payload) {
+  if (!hasBridge()) {
+    return Promise.resolve(removeBrowserPromptTag(payload))
+  }
+  return invoke(getChannel('PROMPT_TAGS_REMOVE_TAG'), payload)
+}
+
+export function removePromptTagCategory (payload) {
+  if (!hasBridge()) {
+    return Promise.resolve(removeBrowserPromptTagCategory(payload))
+  }
+  return invoke(getChannel('PROMPT_TAGS_REMOVE_CATEGORY'), payload)
 }
 
 export function createLocalTask (payload) {
