@@ -54,6 +54,10 @@ const props = defineProps({
   longRunningHint: {
     type: String,
     default: ''
+  },
+  taskScaleSummary: {
+    type: Object,
+    default: null
   }
 })
 
@@ -647,6 +651,11 @@ function isTagPickerVisible(menuKey) {
         </div>
 
         <p v-if="longRunningHint" class="section-copy">{{ longRunningHint }}</p>
+        <section v-if="taskScaleSummary" class="task-scale-summary">
+          <strong>当前任务预计输出 {{ taskScaleSummary.totalOutputs }} 张</strong>
+          <small>风险等级：{{ taskScaleSummary.levelLabel }}</small>
+          <small>预计积分：{{ taskScaleSummary.estimatedCredits || 0 }}</small>
+        </section>
       </template>
 
       <template v-else-if="activeMenu === 'series-generate'">
@@ -801,6 +810,11 @@ function isTagPickerVisible(menuKey) {
           </label>
         </div>
         <p v-if="longRunningHint" class="section-copy">{{ longRunningHint }}</p>
+        <section v-if="taskScaleSummary" class="task-scale-summary">
+          <strong>当前任务预计输出 {{ taskScaleSummary.totalOutputs }} 张</strong>
+          <small>风险等级：{{ taskScaleSummary.levelLabel }}</small>
+          <small>预计积分：{{ taskScaleSummary.estimatedCredits || 0 }}</small>
+        </section>
         <section class="form-field">
           <span>逐张提示词配置</span>
           <div class="assignment-list">

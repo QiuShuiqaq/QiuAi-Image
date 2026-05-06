@@ -96,6 +96,18 @@ const taskMenuMapByCategory = {
 }
 const CREDIT_ACTIVITY_HISTORY_LIMIT = 20
 const REQUEST_METRIC_HISTORY_LIMIT = 24
+const TASK_SIZE_LIMITS = {
+  'series-generate': {
+    warn: 40,
+    block: 120
+  },
+  'series-design': {
+    warn: 30,
+    block: 80
+  }
+}
+const EXPORT_FREE_SPACE_MULTIPLIER = 3
+const EXPORT_MIN_REQUIRED_BYTES = 1024
 const workspaceDashboardSections = [
   { cardKey: 'singleImageStats', menuKey: 'single-image', title: '单图测试统计' },
   { cardKey: 'seriesDesignStats', menuKey: 'series-design', title: '套图设计统计' },
@@ -1576,6 +1588,82 @@ function buildFailedTaskSummary({ menuKey, draft, taskId, taskNumber, createdAt,
   })
 }
 
+function resolveTaskSize(menuKey, draft = {}) {
+  if (menuKey === 'series-generate') {
+    return Math.max(1, Number(draft.batchCount) || 1) * resolveGroupImageCount(menuKey, draft)
+  }
+
+  if (menuKey === 'series-design') {
+    return resolveSeriesSelectedAssignmentCount(draft) * Math.max(1, Number(draft.batchCount) || 1)
+  }
+
+  return 0
+}
+
+function validateTaskScale(menuKey, draft = {}) {
+  const limits = TASK_SIZE_LIMITS[menuKey]
+  if (!limits) {
+    return {
+      totalSubtasks: resolveTaskSize(menuKey, draft),
+      level: 'safe'
+    }
+  }
+
+  const totalSubtasks = resolveTaskSize(menuKey, draft)
+  if (totalSubtasks > limits.block) {
+    const error = new Error('当前任务量过大，请拆分后再提交')
+    error.code = 'TASK_SCALE_EXCEEDED'
+    error.details = {
+      menuKey,
+      totalSubtasks,
+      warnThreshold: limits.warn,
+      blockThreshold: limits.block
+    }
+    throw error
+  }
+
+  return {
+    totalSubtasks,
+    level: totalSubtasks > limits.warn ? 'warn' : 'safe',
+    warnThreshold: limits.warn,
+    blockThreshold: limits.block
+  }
+}
+
+async function getAvailableDiskSpaceBytes(targetPath = process.cwd(), {
+  statfs = fs.statfs
+} = {}) {
+  let resolvedPath = path.resolve(targetPath || process.cwd())
+
+  if (!fsSync.existsSync(resolvedPath)) {
+    resolvedPath = path.dirname(resolvedPath)
+  }
+
+  while (!fsSync.existsSync(resolvedPath)) {
+    const parentPath = path.dirname(resolvedPath)
+    if (parentPath === resolvedPath) {
+      resolvedPath = process.cwd()
+      break
+    }
+    resolvedPath = parentPath
+  }
+
+  const stats = await statfs(resolvedPath)
+  const blockSize = Number(stats?.bsize || stats?.frsize || 0)
+  const freeBlocks = Number(stats?.bavail || stats?.bfree || 0)
+
+  if (!Number.isFinite(blockSize) || !Number.isFinite(freeBlocks) || blockSize <= 0 || freeBlocks < 0) {
+    throw new Error('无法读取磁盘可用空间')
+  }
+
+  return blockSize * freeBlocks
+}
+
+function estimateExportRequiredBytes(selectedItems = []) {
+  const itemCount = Math.max(1, Array.isArray(selectedItems) ? selectedItems.length : 0)
+  return Math.max(EXPORT_MIN_REQUIRED_BYTES, itemCount * EXPORT_MIN_REQUIRED_BYTES * EXPORT_FREE_SPACE_MULTIPLIER)
+}
+
 function buildStoppedTaskSummary(task = {}, errorMessage = '用户手动结束任务') {
   return {
     ...task,
@@ -1583,6 +1671,18 @@ function buildStoppedTaskSummary(task = {}, errorMessage = '用户手动结束�
     progress: task.status === '等待中'
       ? 0
       : Math.max(0, Math.min(100, Number(task.progress) || 0)),
+    error: errorMessage
+  }
+}
+
+function buildPendingConfirmationTaskSummary(
+  task = {},
+  errorMessage = '任务状态待确认：软件重启前任务可能仍在远端处理中，请手动结束或重新提交'
+) {
+  return {
+    ...task,
+    status: '待确认',
+    progress: Math.max(0, Math.min(100, Number(task.progress) || 0)),
     error: errorMessage
   }
 }
@@ -1740,6 +1840,7 @@ function createStudioWorkspaceService({
   removeDirectory = (targetPath) => fs.rm(targetPath, { recursive: true, force: true }),
   readdirSync = fsSync.readdirSync,
   statSync = fsSync.statSync,
+  getAvailableDiskSpaceBytes: getAvailableDiskSpaceBytesDependency = (targetPath) => getAvailableDiskSpaceBytes(targetPath),
   getNowMs = () => Date.now(),
   exportScanCacheTtlMs = 3000,
   exportTaskDirectory: exportTaskDirectoryDependency = defaultExportTaskDirectory,
@@ -2158,8 +2259,8 @@ function createStudioWorkspaceService({
       throw new Error('未找到可结束的任务')
     }
 
-    if (!['等待中', '进行中'].includes(targetTask.status)) {
-      throw new Error('只有等待中或进行中的任务可以结束')
+    if (!['等待中', '进行中', '待确认'].includes(targetTask.status)) {
+      throw new Error('只有等待中、进行中或待确认的任务可以结束')
     }
 
     for (let index = queuedTaskExecutions.length - 1; index >= 0; index -= 1) {
@@ -2221,8 +2322,6 @@ function createStudioWorkspaceService({
     }
 
     const reconciledTasks = []
-    let nextCreditState = settingsService.getSettings().creditState
-
     for (const task of activeTasks) {
       const isQueuedLocally = queuedTaskExecutions.some((item) => item?.taskId === task.id)
       const hasActiveController = activeTaskControllers.has(task.id)
@@ -2231,29 +2330,18 @@ function createStudioWorkspaceService({
         continue
       }
 
-      const failedTask = buildStoppedTaskSummary(task, '任务进程已结束，系统已自动关闭该残留任务')
+      const pendingTask = buildPendingConfirmationTaskSummary(task)
       await persistTaskAndState({
-        task: failedTask
+        task: pendingTask
       })
-
-      nextCreditState = refundCreditsForTask({
-        creditState: nextCreditState,
-        taskId: task.id,
-        updatedAt: getNow()
-      })
-
-      reconciledTasks.push(failedTask)
+      reconciledTasks.push(pendingTask)
     }
 
     if (reconciledTasks.length) {
-      await settingsService.saveSettings({
-        creditState: nextCreditState
-      })
-
       await safeRuntimeLog(runtimeLogger, {
         level: 'warn',
         scope: 'studio-workspace',
-        message: 'Reconciled orphaned active studio tasks before runtime cleanup',
+        message: 'Marked orphaned active studio tasks as pending confirmation before runtime cleanup',
         taskIds: reconciledTasks.map((task) => task.id)
       })
     }
@@ -2341,6 +2429,7 @@ function createStudioWorkspaceService({
       ...(state.formDrafts[menuKey] || createDefaultDrafts()[menuKey] || {}),
       ...(incomingDraft || {})
     })
+    validateTaskScale(menuKey, draft)
     const estimatedCredits = estimateTaskCredits(menuKey, draft)
     const {
       inputDirectory,
@@ -2528,6 +2617,15 @@ function createStudioWorkspaceService({
 
     if (!selectedItems.length) {
       throw new Error('未找到已选中的导出结果')
+    }
+
+    const estimatedRequiredBytes = estimateExportRequiredBytes(selectedItems)
+    const targetDiskFreeBytes = await getAvailableDiskSpaceBytesDependency(path.dirname(targetZipPath))
+    const tempDiskFreeBytes = await getAvailableDiskSpaceBytesDependency(os.tmpdir())
+    const minimumFreeBytes = estimatedRequiredBytes * EXPORT_FREE_SPACE_MULTIPLIER
+
+    if (targetDiskFreeBytes < minimumFreeBytes || tempDiskFreeBytes < minimumFreeBytes) {
+      throw new Error('导出空间不足，请清理磁盘后重试')
     }
 
     const stagingDirectory = await mkdtemp(path.join(os.tmpdir(), 'qiuai-studio-export-'))

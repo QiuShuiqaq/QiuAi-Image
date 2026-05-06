@@ -10,6 +10,9 @@ const SERIES_DESIGN_SOFT_WEIGHT = 12
 const SERIES_GENERATE_SOFT_TOTAL = 8
 const SERIES_GROUP_CONCURRENCY = 5
 const MAX_SERIES_GENERATE_GROUP_SIZE = 500
+const REMOTE_RESULT_POLL_INTERVAL_MS = 2500
+const REMOTE_RESULT_TOTAL_TIMEOUT_MS = 30 * 60 * 1000
+const REMOTE_RESULT_STALL_TIMEOUT_MS = 10 * 60 * 1000
 const SERIES_GENERATE_IMAGE_TYPE_OPTIONS = ['商品主图', '详情图', '细节图', '尺寸图', '白底图', '颜色图']
 const SERIES_GENERATE_IMAGE_TYPE_CONFIG = {
   商品主图: {
@@ -159,6 +162,26 @@ function normalizeProgressValue(progressValue, fallbackValue = 0) {
   }
 
   return Math.max(0, Math.min(100, Math.round(numericProgress)))
+}
+
+function isRemoteResultPollingTimedOut({
+  pollStartedAt = 0,
+  lastProgressAt = 0,
+  getNowMs = () => Date.now(),
+  remoteResultTimeoutMs = REMOTE_RESULT_TOTAL_TIMEOUT_MS,
+  remoteResultStallTimeoutMs = REMOTE_RESULT_STALL_TIMEOUT_MS
+} = {}) {
+  const now = getNowMs()
+
+  if (now - pollStartedAt >= remoteResultTimeoutMs) {
+    return 'total'
+  }
+
+  if (now - lastProgressAt >= remoteResultStallTimeoutMs) {
+    return 'stall'
+  }
+
+  return ''
 }
 
 function buildImageErrorMessage(result = {}, fallbackMessage = '图片任务执行失败') {
@@ -458,7 +481,11 @@ function createStudioImageGenerationService({
   getCompletedDrawResultDependency = getCompletedDrawResult,
   toDataUrlDependency = toDataUrl,
   getMimeTypeFromPathDependency = getMimeTypeFromPath,
-  wait = sleep
+  wait = sleep,
+  getNowMs = () => Date.now(),
+  remoteResultTimeoutMs = REMOTE_RESULT_TOTAL_TIMEOUT_MS,
+  remoteResultStallTimeoutMs = REMOTE_RESULT_STALL_TIMEOUT_MS,
+  remoteResultPollIntervalMs = REMOTE_RESULT_POLL_INTERVAL_MS
 }) {
   async function executeRemoteImageTask({
     jobLabel,
@@ -509,6 +536,9 @@ function createStudioImageGenerationService({
       })
 
       let completedResult
+      const pollStartedAt = getNowMs()
+      let lastObservedProgress = 0
+      let lastProgressAt = pollStartedAt
 
       do {
         completedResult = await getCompletedDrawResultDependency({
@@ -528,7 +558,29 @@ function createStudioImageGenerationService({
         }
 
         if (completedResult.status === 'running') {
-          await wait(2500)
+          const normalizedProgress = normalizeProgressValue(completedResult.progress, lastObservedProgress)
+          if (normalizedProgress > lastObservedProgress) {
+            lastObservedProgress = normalizedProgress
+            lastProgressAt = getNowMs()
+          }
+
+          const timeoutKind = isRemoteResultPollingTimedOut({
+            pollStartedAt,
+            lastProgressAt,
+            getNowMs,
+            remoteResultTimeoutMs,
+            remoteResultStallTimeoutMs
+          })
+
+          if (timeoutKind === 'total') {
+            throw new Error('图片任务执行超时，请拆分任务或稍后重试')
+          }
+
+          if (timeoutKind === 'stall') {
+            throw new Error('图片任务长时间无进展，请稍后重试')
+          }
+
+          await wait(remoteResultPollIntervalMs)
         }
       } while (completedResult.status === 'running')
 

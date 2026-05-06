@@ -34,6 +34,7 @@ const emit = defineEmits(['toggle-export-item', 'batch-download', 'open-output-d
 const statusClassMap = {
   等待中: 'task-status--waiting',
   进行中: 'task-status--running',
+  待确认: 'task-status--running',
   已完成: 'task-status--completed',
   失败: 'task-status--failed'
 }
@@ -78,7 +79,7 @@ function getStatusClass(status) {
 }
 
 function isStoppableTask(task) {
-  return task && ['等待中', '进行中'].includes(task.status)
+  return task && ['等待中', '进行中', '待确认'].includes(task.status)
 }
 
 function formatTaskNumber(taskNumber = '', fallbackId = '') {

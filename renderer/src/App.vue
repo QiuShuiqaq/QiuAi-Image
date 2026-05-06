@@ -152,6 +152,16 @@ const draftPersistTimers = new Map()
 
 const HIGH_RISK_PROMPT_PATTERNS = ['和原图一致', '保持原样', '不改动布局', '复刻原图', '完全一致', '不要变化']
 const MEDIUM_RISK_PROMPT_PATTERNS = ['尽量不变', '保留原图风格', '轻微修改', '只改一点', '背景不动']
+const TASK_SCALE_LIMITS = {
+  'series-generate': {
+    warn: 40,
+    block: 120
+  },
+  'series-design': {
+    warn: 30,
+    block: 80
+  }
+}
 
 function resolveDefaultModelForMenu() {
   return imageModelOptions[0].value
@@ -401,10 +411,6 @@ function replaceDraft(menuKey, nextDraft) {
   }
 }
 
-function resetDraftForMenu(menuKey) {
-  replaceDraft(menuKey, normalizeStoredDraft(menuKey, formDrafts.value[menuKey] || createDraftForm(menuKey)))
-}
-
 function upsertTaskIntoState(task) {
   if (!task || !task.id) {
     return
@@ -636,6 +642,46 @@ const currentLongRunningHint = computed(() => {
   }
 
   return ''
+})
+
+function resolveTaskScaleSummary(menuKey, draft = {}) {
+  if (menuKey !== 'series-generate' && menuKey !== 'series-design') {
+    return null
+  }
+
+  const limits = TASK_SCALE_LIMITS[menuKey]
+  const totalOutputs = menuKey === 'series-generate'
+    ? Math.max(1, Number(draft.generateCount) || 1) * Math.max(1, Number(draft.batchCount) || 1)
+    : (
+        (Array.isArray(draft.imageAssignments)
+          ? draft.imageAssignments.filter((item) => item.selected !== false).length
+          : 0) * Math.max(1, Number(draft.batchCount) || 1)
+      )
+
+  let level = 'safe'
+  let levelLabel = '正常'
+  if (totalOutputs > limits.block) {
+    level = 'block'
+    levelLabel = '禁止提交'
+  } else if (totalOutputs > limits.warn) {
+    level = 'warn'
+    levelLabel = '谨慎提交'
+  }
+
+  const estimatedCredits = latestTaskForActiveMenu.value?.estimatedCredits && latestTaskForActiveMenu.value.menuKey === menuKey
+    ? latestTaskForActiveMenu.value.estimatedCredits
+    : 0
+
+  return {
+    totalOutputs,
+    estimatedCredits,
+    level,
+    levelLabel
+  }
+}
+
+const currentTaskScaleSummary = computed(() => {
+  return resolveTaskScaleSummary(activeMenu.value, currentDraftForm.value)
 })
 
 function applySnapshot(snapshot = {}, settings = {}, options = {}) {
@@ -1359,8 +1405,16 @@ async function handleSubmitTask() {
   try {
     setSubmitButtonState('submitting')
     clearDraftPersistTimer(activeMenu.value)
-    resetDraftForMenu(activeMenu.value)
     const draftToSubmit = buildDraftForSubmit(activeMenu.value)
+    if (currentTaskScaleSummary.value?.level === 'block') {
+      setSubmitButtonState('idle')
+      showActionFeedback({
+        type: 'error',
+        title: '失败',
+        message: '当前任务量过大，请拆分后再提交'
+      })
+      return
+    }
     const promptRisk = detectPromptRisk(draftToSubmit.globalPrompt)
     if (promptRisk) {
       showActionFeedback({
@@ -1446,7 +1500,7 @@ async function handleBatchDownload() {
         title: hasCleanupFailure ? '失败' : '成功',
         message: hasCleanupFailure
           ? '批量下载成功，但部分结果文件夹自动清理失败'
-          : '批量下载成功，已自动清理已导出的结果文件夹'
+          : '批量下载成功，源结果文件夹已自动删除'
       })
       return
     }
@@ -1454,7 +1508,7 @@ async function handleBatchDownload() {
     showActionFeedback({
       type: 'success',
       title: '成功',
-      message: `已导出 ${exportedArchive?.exportedCount || exportedIds.length} 个结果到压缩包`
+      message: '批量下载成功，请确认压缩包完整后再手动清理源结果文件夹'
     })
   } catch (error) {
     console.error('Failed to batch download studio results', error)
@@ -2080,6 +2134,7 @@ onBeforeUnmount(() => {
           :upload-directory-drafts="uploadDirectoryDrafts"
           :submit-button-state="submitButtonState"
           :long-running-hint="currentLongRunningHint"
+          :task-scale-summary="currentTaskScaleSummary"
           :model-pricing-catalog="modelPricingCatalog"
           :recharge-pricing-catalog="rechargePricingCatalog"
           :result-payload="resultPayload"

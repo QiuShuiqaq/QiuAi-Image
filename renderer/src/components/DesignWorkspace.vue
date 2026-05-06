@@ -49,6 +49,10 @@ defineProps({
     type: String,
     default: ''
   },
+  taskScaleSummary: {
+    type: Object,
+    default: null
+  },
   modelPricingCatalog: {
     type: Array,
     required: true
@@ -222,6 +226,7 @@ const emit = defineEmits([
           :upload-directory-drafts="uploadDirectoryDrafts"
           :submit-button-state="submitButtonState"
           :long-running-hint="longRunningHint"
+          :task-scale-summary="taskScaleSummary"
           :prompt-templates="allPromptTemplates"
           :prompt-tag-categories="promptTagCategories"
           :fixed-negative-prompt-templates="fixedNegativePromptTemplates"

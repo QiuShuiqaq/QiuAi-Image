@@ -827,4 +827,82 @@ describe('studioImageGenerationService', () => {
       '统一风格\n突出主体卖点'
     )
   })
+
+  it('fails with a stall-timeout message when remote draw result keeps running without progress for too long', async () => {
+    const wait = vi.fn(async () => undefined)
+    const getCompletedDrawResultDependency = vi.fn(async ({ id }) => ({
+      id,
+      status: 'running',
+      progress: 97,
+      results: []
+    }))
+    let nowMs = 0
+    const service = createService({
+      wait,
+      getCompletedDrawResultDependency,
+      getNowMs: () => {
+        nowMs += 60_000
+        return nowMs
+      },
+      remoteResultTimeoutMs: 60 * 60 * 1000,
+      remoteResultStallTimeoutMs: 5 * 60 * 1000
+    })
+
+    await expect(service.generateImageResults({
+      menuKey: 'single-design',
+      taskId: 'task-single-design-stuck-running',
+      outputDirectory: 'C:/output',
+      draft: {
+        model: 'gpt-image-2',
+        prompt: '生成一张高质量商品主图',
+        notes: '',
+        sourceImage: null,
+        size: '1:1'
+      }
+    })).rejects.toThrow('图片任务长时间无进展，请稍后重试')
+
+    expect(getCompletedDrawResultDependency).toHaveBeenCalled()
+    expect(wait).toHaveBeenCalled()
+  })
+
+  it('fails with a total-timeout message when remote draw result still runs but keeps making small progress until overall timeout', async () => {
+    const wait = vi.fn(async () => undefined)
+    let progressValue = 0
+    const getCompletedDrawResultDependency = vi.fn(async ({ id }) => {
+      progressValue += 1
+      return {
+        id,
+        status: 'running',
+        progress: progressValue,
+        results: []
+      }
+    })
+    let nowMs = 0
+    const service = createService({
+      wait,
+      getCompletedDrawResultDependency,
+      getNowMs: () => {
+        nowMs += 60_000
+        return nowMs
+      },
+      remoteResultTimeoutMs: 30 * 60 * 1000,
+      remoteResultStallTimeoutMs: 60 * 60 * 1000
+    })
+
+    await expect(service.generateImageResults({
+      menuKey: 'single-design',
+      taskId: 'task-single-design-total-timeout',
+      outputDirectory: 'C:/output',
+      draft: {
+        model: 'gpt-image-2',
+        prompt: '生成一张高质量商品主图',
+        notes: '',
+        sourceImage: null,
+        size: '1:1'
+      }
+    })).rejects.toThrow('图片任务执行超时，请拆分任务或稍后重试')
+
+    expect(getCompletedDrawResultDependency).toHaveBeenCalled()
+    expect(wait).toHaveBeenCalled()
+  })
 })

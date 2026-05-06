@@ -145,6 +145,58 @@ describe('studioWorkspaceService', () => {
     }))
   })
 
+  it('marks tasks as failed instead of leaving them stuck in progress when image generation never finishes', async () => {
+    const store = createMemoryStore()
+
+    const { createSettingsStoreService } = await import('../../main/src/services/settingsStoreService.js')
+    const { createStudioWorkspaceService } = await import('../../main/src/services/studioWorkspaceService.js')
+
+    const settingsService = createSettingsStoreService({ store })
+    await seedCredits(settingsService)
+    const generateImageResults = vi.fn(async ({ onProgress }) => {
+      await onProgress({
+        progress: 97,
+        status: 'running'
+      })
+      throw new Error('图片任务超时未完成，请稍后重试')
+    })
+    const service = createStudioWorkspaceService({
+      store,
+      settingsService,
+      ...createEmptyOutputScanDependencies(),
+      ensureDirectory: async () => undefined,
+      persistSourceFiles: async () => [],
+      writeFile: async () => undefined,
+      generateImageResults,
+      createId: () => 'studio-stuck-1',
+      createTaskNumber: () => 'QAI-20260507-0001',
+      getNow: () => '2026-05-07T10:00:00.000Z'
+    })
+
+    await service.saveDraft({
+      menuKey: 'single-design',
+      patch: {
+        taskName: 'StuckTask',
+        prompt: '生成一张高质量商品主图',
+        model: 'gpt-image-2'
+      }
+    })
+
+    await service.createTask({
+      menuKey: 'single-design'
+    })
+    await service.waitForIdle()
+
+    const failedTask = service.getSnapshot().tasks.find((item) => item.id === 'studio-stuck-1')
+
+    expect(failedTask).toBeTruthy()
+    expect(failedTask).toMatchObject({
+      status: '失败',
+      progress: 100,
+      error: '图片任务超时未完成，请稍后重试'
+    })
+  })
+
   it('returns snapshot without copywriting menu and with four dashboard stats cards', async () => {
     const store = createMemoryStore()
 
@@ -393,7 +445,7 @@ describe('studioWorkspaceService', () => {
     expect(snapshot.formDrafts['series-generate'].negativePrompt).toBe('')
   })
 
-  it('converts orphaned active tasks to failed before one-key cleanup proceeds', async () => {
+  it('converts orphaned active tasks to pending confirmation before one-key cleanup proceeds', async () => {
     const store = createMemoryStore()
 
     const { createSettingsStoreService } = await import('../../main/src/services/settingsStoreService.js')
@@ -473,16 +525,52 @@ describe('studioWorkspaceService', () => {
     expect(cleared.cleared).toBe(true)
     expect(snapshot.tasks[0]).toMatchObject({
       id: 'orphan-running-task-1',
-      status: '失败',
-      error: '任务进程已结束，系统已自动关闭该残留任务'
+      status: '待确认',
+      progress: 52,
+      error: '任务状态待确认：软件重启前任务可能仍在远端处理中，请手动结束或重新提交'
     })
     expect(settingsService.getSettings().creditState).toMatchObject({
-      remainingCredits: 5000,
-      frozenCredits: 0,
+      remainingCredits: 4400,
+      frozenCredits: 600,
       usedCredits: 0
     })
     expect(settingsService.getSettings().creditState.taskLedger['orphan-running-task-1']).toMatchObject({
-      status: 'refunded'
+      status: 'frozen'
+    })
+  })
+
+  it('allows one-key cleanup to proceed when only pending-confirmation tasks remain', async () => {
+    const store = createMemoryStore()
+
+    const { createSettingsStoreService } = await import('../../main/src/services/settingsStoreService.js')
+    const { createStudioWorkspaceService } = await import('../../main/src/services/studioWorkspaceService.js')
+
+    const settingsService = createSettingsStoreService({ store })
+    const taskManagerService = {
+      listTasks: () => [
+        {
+          id: 'pending-task-1',
+          menuKey: 'series-generate',
+          status: '待确认',
+          progress: 97,
+          createdAt: '2026-05-07 12:00:00'
+        }
+      ]
+    }
+    const service = createStudioWorkspaceService({
+      store,
+      settingsService,
+      taskManagerService,
+      ...createEmptyOutputScanDependencies(),
+      ensureDirectory: async () => undefined,
+      persistSourceFiles: async () => [],
+      writeFile: async () => undefined
+    })
+
+    const cleared = await service.clearRuntimeState()
+
+    expect(cleared).toEqual({
+      cleared: true
     })
   })
 
@@ -926,6 +1014,138 @@ describe('studioWorkspaceService', () => {
       targetZipPath: 'C:/downloads/single-design-results.zip'
     })
     expect(removedDirectories).toEqual(['C:/temp/qiuai-studio-export-1'])
+  })
+
+  it('rejects oversized series-generate tasks before they enter the queue', async () => {
+    const store = createMemoryStore()
+
+    const { createSettingsStoreService } = await import('../../main/src/services/settingsStoreService.js')
+    const { createStudioWorkspaceService } = await import('../../main/src/services/studioWorkspaceService.js')
+
+    const settingsService = createSettingsStoreService({ store })
+    await seedCredits(settingsService)
+    const generateImageResults = vi.fn(async () => {
+      throw new Error('should not start oversized task')
+    })
+    const service = createStudioWorkspaceService({
+      store,
+      settingsService,
+      ...createEmptyOutputScanDependencies(),
+      ensureDirectory: async () => undefined,
+      persistSourceFiles: async () => [],
+      writeFile: async () => undefined,
+      generateImageResults,
+      createId: () => 'oversized-series-generate',
+      createTaskNumber: () => 'QAI-20260507-9001',
+      getNow: () => '2026-05-07T12:00:00.000Z'
+    })
+
+    await service.saveDraft({
+      menuKey: 'series-generate',
+      patch: {
+        taskName: 'TooLargeGenerate',
+        globalPrompt: '统一高端商品详情页风格',
+        generateCount: 121,
+        batchCount: 1,
+        sourceImage: {
+          name: 'shoe-main.jpg',
+          path: 'C:/images/shoe-main.jpg'
+        },
+        promptAssignments: Array.from({ length: 121 }, (_unused, index) => ({
+          index: index + 1,
+          prompt: `第 ${index + 1} 张商品图`,
+          imageType: '商品主图'
+        }))
+      }
+    })
+
+    await expect(service.createTask({
+      menuKey: 'series-generate'
+    })).rejects.toThrow('当前任务量过大，请拆分后再提交')
+
+    expect(generateImageResults).not.toHaveBeenCalled()
+    expect(service.getSnapshot().tasks).toEqual([])
+    expect(settingsService.getSettings().creditState).toMatchObject({
+      frozenCredits: 0
+    })
+  })
+
+  it('fails export early when free disk space is below the required archive budget', async () => {
+    const store = createMemoryStore()
+    const copiedFiles = []
+    const removedDirectories = []
+    const exportedArchives = []
+
+    const { createSettingsStoreService } = await import('../../main/src/services/settingsStoreService.js')
+    const { createStudioWorkspaceService } = await import('../../main/src/services/studioWorkspaceService.js')
+
+    const settingsService = createSettingsStoreService({ store })
+    await seedCredits(settingsService)
+    const service = createStudioWorkspaceService({
+      store,
+      settingsService,
+      ...createEmptyOutputScanDependencies(),
+      ensureDirectory: async () => undefined,
+      persistSourceFiles: async () => [],
+      writeFile: async () => undefined,
+      generateImageResults: async ({ taskId }) => ({
+        textResults: [],
+        comparisonResults: [
+          {
+            id: `${taskId}-single-1`,
+            model: 'gpt-image-2',
+            title: '单图设计结果',
+            preview: createPreviewDataUrl('single-export-insufficient-space')
+          }
+        ],
+        groupedResults: [],
+        summary: {
+          title: '单图设计',
+          description: '导出空间保护测试'
+        }
+      }),
+      mkdtemp: async () => 'C:/temp/qiuai-studio-export-2',
+      copyDirectory: async (sourcePath, targetPath) => {
+        copiedFiles.push({ sourcePath, targetPath })
+      },
+      removeDirectory: async (targetPath) => {
+        removedDirectories.push(targetPath)
+      },
+      exportTaskDirectory: async ({ sourceDirectory, targetZipPath }) => {
+        exportedArchives.push({ sourceDirectory, targetZipPath })
+        return { targetZipPath }
+      },
+      getAvailableDiskSpaceBytes: async () => 512,
+      createId: () => 'studio-export-insufficient-space',
+      getNow: () => '2026-05-07T12:10:00.000Z'
+    })
+
+    await service.saveDraft({
+      menuKey: 'single-design',
+      patch: {
+        model: 'gpt-image-2',
+        taskName: 'SingleZipTooLarge',
+        prompt: '生成一张高质量电商主图'
+      }
+    })
+
+    await service.createTask({
+      menuKey: 'single-design'
+    })
+    await service.waitForIdle()
+
+    const snapshot = service.getSnapshot()
+    const selectedIds = snapshot.exportItemsByMenu['single-design'].map((item) => item.id)
+
+    await expect(service.exportSelectedResults({
+      menuKey: 'single-design',
+      selectedExportIds: selectedIds,
+      targetZipPath: 'C:/downloads/single-design-results-too-large.zip'
+    })).rejects.toThrow('导出空间不足，请清理磁盘后重试')
+
+    expect(copiedFiles).toEqual([])
+    expect(exportedArchives).toEqual([])
+    expect(removedDirectories).toEqual([])
   })
 
   it('deletes a stored export folder and removes it from snapshot', async () => {
