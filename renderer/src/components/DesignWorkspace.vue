@@ -3,6 +3,7 @@ import WorkspaceDashboard from './WorkspaceDashboard.vue'
 import ParameterSettingsPanel from './ParameterSettingsPanel.vue'
 import ResultDisplayPanel from './ResultDisplayPanel.vue'
 import PromptLibraryPanel from './PromptLibraryPanel.vue'
+import ClearRuntimeConfirmDialog from './ClearRuntimeConfirmDialog.vue'
 
 // 工作台主区标题：
 // 套图设计统计
@@ -101,6 +102,10 @@ defineProps({
     type: Boolean,
     required: true
   },
+  runtimeResetSequence: {
+    type: Number,
+    default: 0
+  },
   fixedPromptTemplates: {
     type: Array,
     required: true
@@ -120,6 +125,14 @@ defineProps({
   allPromptTemplates: {
     type: Array,
     required: true
+  },
+  isClearRuntimeConfirmVisible: {
+    type: Boolean,
+    default: false
+  },
+  isClearingRuntimeState: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -142,7 +155,9 @@ const emit = defineEmits([
   'save-prompt-template',
   'remove-prompt-template',
   'save-negative-prompt-template',
-  'remove-negative-prompt-template'
+  'remove-negative-prompt-template',
+  'confirm-clear-runtime-state',
+  'close-clear-runtime-confirm'
 ])
 </script>
 
@@ -156,6 +171,13 @@ const emit = defineEmits([
       }
     ]"
   >
+    <ClearRuntimeConfirmDialog
+      :visible="isClearRuntimeConfirmVisible"
+      :is-processing="isClearingRuntimeState"
+      @confirm="emit('confirm-clear-runtime-state')"
+      @close="emit('close-clear-runtime-confirm')"
+    />
+
     <template v-if="activeMenu === 'workspace'">
       <section class="workspace-panel">
         <WorkspaceDashboard
@@ -204,6 +226,7 @@ const emit = defineEmits([
     <template v-else>
       <section class="workspace-panel workspace-panel--bordered">
         <ParameterSettingsPanel
+          :key="`${activeMenu}-${runtimeResetSequence}`"
           :active-menu="activeMenu"
           :menu-label="menuLabel"
           :draft-form="draftForm"

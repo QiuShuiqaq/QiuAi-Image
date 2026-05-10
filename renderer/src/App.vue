@@ -140,6 +140,9 @@ const adminApiKeyDraft = ref('')
 const isAdminApiKeySaving = ref(false)
 const adminPasswordFeedback = ref('')
 const adminApiKeyFeedback = ref('')
+const isClearRuntimeConfirmVisible = ref(false)
+const isClearingRuntimeState = ref(false)
+const runtimeResetSequence = ref(0)
 const previousTaskStatusMap = new Map()
 let actionNoticeTimer = null
 let submitButtonStateTimer = null
@@ -158,6 +161,26 @@ const TASK_SCALE_LIMITS = {
     warn: 30,
     block: 80
   }
+}
+
+const DEFAULT_EMPTY_PROMPT_TEMPLATE_ID = 'system-empty-image-type'
+const DEFAULT_EMPTY_PROMPT_TEMPLATE_NAME = '无类型图片'
+const DEFAULT_EMPTY_PROMPT_TEMPLATE = {
+  id: DEFAULT_EMPTY_PROMPT_TEMPLATE_ID,
+  name: DEFAULT_EMPTY_PROMPT_TEMPLATE_NAME,
+  category: '按钮提示词',
+  prompt: '',
+  source: 'system-fixed'
+}
+
+const DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID = 'system-empty-negative-prompt'
+const DEFAULT_EMPTY_NEGATIVE_TEMPLATE_NAME = '无负向提示词'
+const DEFAULT_EMPTY_NEGATIVE_PROMPT_TEMPLATE = {
+  id: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID,
+  name: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_NAME,
+  category: '反向提示词',
+  prompt: '',
+  source: 'system-fixed'
 }
 
 function resolveDefaultModelForMenu() {
@@ -215,6 +238,7 @@ function createSeriesGeneratePromptAssignments(count, existingAssignments = [], 
       id: currentAssignment.id || `series-generate-${index + 1}`,
       index: index + 1,
       prompt: currentAssignment.prompt || '',
+      templateId: currentAssignment.templateId || DEFAULT_EMPTY_PROMPT_TEMPLATE_ID,
       imageType: currentAssignment.imageType || '',
       differentialEnabled: currentAssignment.differentialEnabled === true,
       batchPrompts: normalizeBatchPrompts(currentAssignment.batchPrompts, normalizedBatchCount)
@@ -255,7 +279,7 @@ function createDraftForm(menuKey) {
   if (menuKey === 'series-design') {
     return {
       globalPrompt: '统一商品图整体风格',
-      negativeTemplateId: '',
+      negativeTemplateId: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID,
       negativePrompt: '',
       legacyGlobalPrompt: '',
       defaultAssignmentRatio: '1:1',
@@ -271,14 +295,14 @@ function createDraftForm(menuKey) {
   if (menuKey === 'series-generate') {
     return {
       globalPrompt: '统一商品详情图整体风格',
-      negativeTemplateId: '',
+      negativeTemplateId: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID,
       negativePrompt: '',
       legacyGlobalPrompt: '',
       model: resolveDefaultModelForMenu(menuKey),
       taskName: '',
       sourceImage: null,
-      generateCount: 20,
-      promptAssignments: createSeriesGeneratePromptAssignments(20),
+      generateCount: 1,
+      promptAssignments: createSeriesGeneratePromptAssignments(1),
       batchCount: 1,
       size: '1:1'
     }
@@ -390,7 +414,7 @@ function normalizeStoredDraft(menuKey, storedDraft = {}) {
   if (menuKey === 'series-design' || menuKey === 'series-generate') {
     normalizedDraft.legacyGlobalPrompt = String(normalizedDraft.legacyGlobalPrompt || '')
     normalizedDraft.globalPrompt = String(normalizedDraft.globalPrompt || '')
-    normalizedDraft.negativeTemplateId = String(normalizedDraft.negativeTemplateId || '')
+    normalizedDraft.negativeTemplateId = String(normalizedDraft.negativeTemplateId || DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID)
     normalizedDraft.negativePrompt = String(normalizedDraft.negativePrompt || '')
   }
 
@@ -412,6 +436,8 @@ function normalizeSeriesDesignAssignments(assignments = [], batchCount = 1) {
   return (Array.isArray(assignments) ? assignments : []).map((assignment) => {
     return {
       ...assignment,
+      templateId: assignment.templateId || DEFAULT_EMPTY_PROMPT_TEMPLATE_ID,
+      imageType: assignment.imageType || '',
       differentialEnabled: assignment.differentialEnabled === true,
       batchPrompts: normalizeBatchPrompts(assignment.batchPrompts, normalizedBatchCount)
     }
@@ -986,14 +1012,20 @@ async function handleThemeChange() {
   }
 }
 
-async function handleClearRuntimeState() {
-  const shouldClear = typeof window !== 'undefined' && typeof window.confirm === 'function'
-    ? window.confirm('确认执行一键清理吗？将重置参数设置、效果展示与日志缓存，但不会删除输出结果、提示词库、API-Key 和保存目录。')
-    : true
+function openClearRuntimeConfirm() {
+  isClearRuntimeConfirmVisible.value = true
+}
 
-  if (!shouldClear) {
+function closeClearRuntimeConfirm() {
+  if (isClearingRuntimeState.value) {
     return
   }
+
+  isClearRuntimeConfirmVisible.value = false
+}
+
+async function confirmClearRuntimeState() {
+  isClearingRuntimeState.value = true
 
   try {
     clearAllDraftPersistTimers()
@@ -1002,8 +1034,10 @@ async function handleClearRuntimeState() {
     })
 
     await clearStudioRuntimeState()
+    runtimeResetSequence.value += 1
     selectedExportIds.value = []
     await loadStudioSnapshot()
+    isClearRuntimeConfirmVisible.value = false
     showActionFeedback({
       type: 'success',
       title: '成功',
@@ -1016,6 +1050,8 @@ async function handleClearRuntimeState() {
       title: '失败',
       message: `一键清理失败：${buildErrorMessage(error, '清理未完成')}`
     })
+  } finally {
+    isClearingRuntimeState.value = false
   }
 }
 
@@ -1121,7 +1157,8 @@ function handleFieldUpdate({ field, value }) {
 }
 
 function applyNegativeTemplateSelection(currentDraft, templateId) {
-  const matchedTemplate = negativePromptTemplates.value.find((item) => item.id === templateId)
+  const matchedTemplate = [...fixedNegativePromptTemplates.value, ...customNegativePromptTemplates.value]
+    .find((item) => item.id === templateId)
   return {
     ...currentDraft,
     negativeTemplateId: templateId,
@@ -1182,6 +1219,7 @@ async function applySeriesDesignSelection(fileList = []) {
     imageType: '',
     size: formDrafts.value['series-design']?.defaultAssignmentRatio || formDrafts.value['series-design']?.size || '1:1',
     model: formDrafts.value['series-design']?.defaultAssignmentModel || formDrafts.value['series-design']?.model || '',
+    templateId: DEFAULT_EMPTY_PROMPT_TEMPLATE_ID,
     differentialEnabled: false,
     batchPrompts: Array.from({ length: Math.max(1, Number(formDrafts.value['series-design']?.batchCount) || 1) }, () => ''),
     tagIds: [],
@@ -1363,7 +1401,7 @@ function validateCurrentTaskBeforeSubmit() {
       return '请为每一张选中图片填写单独提示词'
     }
 
-    if (assignments.some((item) => item.selected !== false && !String(item.imageType || '').trim())) {
+    if (assignments.some((item) => item.selected !== false && !String(item.templateId || '').trim())) {
       return '请为每一张选中图片选择图片类型'
     }
 
@@ -1397,7 +1435,7 @@ function validateCurrentTaskBeforeSubmit() {
       return '请完整填写每一张图片的单独提示词'
     }
 
-    if (promptAssignments.some((item) => !String(item.imageType || '').trim())) {
+    if (promptAssignments.some((item) => !String(item.templateId || '').trim())) {
       return '请为每一张图片选择图片类型'
     }
   }
@@ -1448,7 +1486,7 @@ function buildDraftForSubmit(menuKey) {
     return {
       ...draft,
       globalPrompt: String(draft.globalPrompt || ''),
-      negativeTemplateId: String(draft.negativeTemplateId || ''),
+      negativeTemplateId: String(draft.negativeTemplateId || DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID),
       negativePrompt: String(draft.negativePrompt || ''),
       legacyGlobalPrompt: String(draft.legacyGlobalPrompt || '')
     }
@@ -2099,7 +2137,7 @@ onBeforeUnmount(() => {
       :active-theme="activeTheme"
       :activation-summary="activationSummary"
       @brand-click="handleBrandClick"
-      @cleanup-click="handleClearRuntimeState"
+      @cleanup-click="openClearRuntimeConfirm"
       @theme-change="handleThemeChange"
     />
 
@@ -2169,6 +2207,9 @@ onBeforeUnmount(() => {
           :total-credits-value="totalCreditAmount"
           :is-applying-credit-adjustment="isApplyingCreditAdjustment"
           :is-saving-total-credits="isSavingTotalCredits"
+          :runtime-reset-sequence="runtimeResetSequence"
+          :is-clear-runtime-confirm-visible="isClearRuntimeConfirmVisible"
+          :is-clearing-runtime-state="isClearingRuntimeState"
           :fixed-prompt-templates="fixedPromptTemplates"
           :custom-prompt-templates="customPromptTemplates"
           :fixed-negative-prompt-templates="fixedNegativePromptTemplates"
@@ -2191,6 +2232,8 @@ onBeforeUnmount(() => {
           @remove-prompt-template="handleRemovePromptTemplate"
           @save-negative-prompt-template="handleSaveNegativePromptTemplate"
           @remove-negative-prompt-template="handleRemoveNegativePromptTemplate"
+          @confirm-clear-runtime-state="confirmClearRuntimeState"
+          @close-clear-runtime-confirm="closeClearRuntimeConfirm"
           @update-upload-directory-draft="handleUploadDirectoryDraftUpdate"
           @save-upload-directory="handleSaveUploadDirectory"
         />

@@ -246,14 +246,19 @@ describe('studioWorkspaceService', () => {
     expect(snapshot.formDrafts['single-image'].compareModels).toHaveLength(4)
     expect(snapshot.formDrafts['single-design'].sourceImage).toBe(null)
     expect(snapshot.formDrafts['single-design'].model).toBe('gpt-image-2')
-    expect(snapshot.formDrafts['series-design'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-design'].negativeTemplateId).toBe('system-empty-negative-prompt')
     expect(snapshot.formDrafts['series-design'].negativePrompt).toBe('')
-    expect(snapshot.formDrafts['series-generate'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-generate'].negativeTemplateId).toBe('system-empty-negative-prompt')
     expect(snapshot.formDrafts['series-generate'].negativePrompt).toBe('')
     expect(snapshot.formDrafts['series-design'].imageAssignments).toEqual([])
     expect(snapshot.formDrafts['series-design'].defaultAssignmentRatio).toBe('1:1')
     expect(snapshot.formDrafts['series-design'].defaultAssignmentModel).toBe('gpt-image-2')
-    expect(snapshot.formDrafts['series-generate'].promptAssignments).toHaveLength(20)
+    expect(snapshot.formDrafts['series-generate'].generateCount).toBe(1)
+    expect(snapshot.formDrafts['series-generate'].promptAssignments).toHaveLength(1)
+    expect(snapshot.formDrafts['series-generate'].promptAssignments[0]).toMatchObject({
+      templateId: 'system-empty-image-type',
+      imageType: ''
+    })
     expect(snapshot.workspaceDashboard).not.toHaveProperty('copywritingStats')
     expect(snapshot.workspaceDashboard.singleImageStats.title).toBe('单图测试统计')
     expect(snapshot.workspaceDashboard.singleDesignStats.title).toBe('单图设计统计')
@@ -435,9 +440,9 @@ describe('studioWorkspaceService', () => {
 
     const snapshot = service.getSnapshot()
 
-    expect(snapshot.formDrafts['series-design'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-design'].negativeTemplateId).toBe('system-empty-negative-prompt')
     expect(snapshot.formDrafts['series-design'].negativePrompt).toBe('')
-    expect(snapshot.formDrafts['series-generate'].negativeTemplateId).toBe('')
+    expect(snapshot.formDrafts['series-generate'].negativeTemplateId).toBe('system-empty-negative-prompt')
     expect(snapshot.formDrafts['series-generate'].negativePrompt).toBe('')
   })
 
@@ -508,6 +513,80 @@ describe('studioWorkspaceService', () => {
     expect(snapshot.formDrafts['series-generate'].promptAssignments[1]).toMatchObject({
       differentialEnabled: false,
       batchPrompts: ['', '']
+    })
+  })
+
+  it('preserves empty-template ids while normalizing series drafts', async () => {
+    const store = createMemoryStore()
+
+    const { createSettingsStoreService } = await import('../../main/src/services/settingsStoreService.js')
+    const { createStudioWorkspaceService, STUDIO_WORKSPACE_KEY } = await import('../../main/src/services/studioWorkspaceService.js')
+
+    store.set(STUDIO_WORKSPACE_KEY, {
+      formDrafts: {
+        'series-design': {
+          globalPrompt: '统一风格',
+          imageAssignments: [
+            {
+              id: 'image-1',
+              name: 'look-1.png',
+              path: 'C:/input/look-1.png',
+              selected: true,
+              prompt: '',
+              templateId: 'system-empty-image-type',
+              imageType: ''
+            }
+          ],
+          batchCount: 1,
+          size: '1:1'
+        },
+        'series-generate': {
+          globalPrompt: '统一风格',
+          sourceImage: {
+            name: 'main.png',
+            path: 'C:/input/main.png'
+          },
+          generateCount: 1,
+          promptAssignments: [
+            {
+              id: 'prompt-1',
+              index: 1,
+              prompt: '',
+              templateId: 'system-empty-image-type',
+              imageType: ''
+            }
+          ],
+          negativeTemplateId: 'system-empty-negative-prompt',
+          negativePrompt: '',
+          batchCount: 1,
+          size: '1:1'
+        }
+      }
+    })
+
+    const settingsService = createSettingsStoreService({ store })
+    const service = createStudioWorkspaceService({
+      store,
+      settingsService,
+      ...createEmptyOutputScanDependencies(),
+      ensureDirectory: async () => undefined,
+      persistSourceFiles: async () => [],
+      writeFile: async () => undefined
+    })
+
+    const snapshot = service.getSnapshot()
+
+    expect(snapshot.formDrafts['series-design'].imageAssignments[0]).toMatchObject({
+      templateId: 'system-empty-image-type',
+      imageType: ''
+    })
+    expect(snapshot.formDrafts['series-generate'].promptAssignments[0]).toMatchObject({
+      templateId: 'system-empty-image-type',
+      imageType: ''
+    })
+    expect(snapshot.formDrafts['series-generate']).toMatchObject({
+      negativeTemplateId: 'system-empty-negative-prompt',
+      negativePrompt: ''
     })
   })
 

@@ -1,5 +1,8 @@
 <script setup>
-defineProps({
+import { computed } from 'vue'
+import FormTextControl from './FormTextControl.vue'
+
+const props = defineProps({
   visible: {
     type: Boolean,
     default: false
@@ -19,6 +22,15 @@ defineProps({
 })
 
 const emit = defineEmits(['update-api-key', 'save', 'close'])
+
+const apiKeyModel = computed({
+  get() {
+    return props.apiKey || ''
+  },
+  set(value) {
+    emit('update-api-key', value)
+  }
+})
 </script>
 
 <template>
@@ -30,12 +42,11 @@ const emit = defineEmits(['update-api-key', 'save', 'close'])
 
       <label class="form-field">
         <span>API-Key</span>
-        <input
-          :value="apiKey"
+        <FormTextControl
+          v-model="apiKeyModel"
           class="admin-api-key-modal__input"
           type="text"
           placeholder="请输入 API-Key"
-          @input="emit('update-api-key', $event.target.value)"
         />
       </label>
 

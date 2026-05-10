@@ -4,6 +4,13 @@ const TEMPLATE_KEY = 'promptTemplates'
 
 const defaultTemplates = [
   {
+    id: 'system-empty-image-type',
+    name: '无类型图片',
+    category: '按钮提示词',
+    prompt: '',
+    source: 'system-fixed'
+  },
+  {
     id: 'product-main',
     name: '商品主图',
     category: '按钮提示词',

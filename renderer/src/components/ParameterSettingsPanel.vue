@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
-import { applyTemplateSelectionToAssignment } from '../utils/assignmentTemplateUpdate.js'
+import { applyTemplateSelectionToAssignment, applyTemplateSelectionToPromptAssignment } from '../utils/assignmentTemplateUpdate.js'
+import FormTextControl from './FormTextControl.vue'
 
 const props = defineProps({
   activeMenu: {
@@ -114,9 +115,84 @@ function emitField(field, value) {
   })
 }
 
-function getUploadDirectoryValue(menuKey) {
-  return props.uploadDirectoryDrafts?.[menuKey] || ''
+function createFieldBinding(field) {
+  return computed({
+    get() {
+      return props.draftForm?.[field] || ''
+    },
+    set(value) {
+      emitField(field, value)
+    }
+  })
 }
+
+const taskNameModel = createFieldBinding('taskName')
+const singleImagePromptModel = createFieldBinding('prompt')
+const singleImageNotesModel = createFieldBinding('notes')
+const singleDesignPromptModel = createFieldBinding('prompt')
+const singleDesignNotesModel = createFieldBinding('notes')
+const seriesDesignGlobalPromptModel = createFieldBinding('globalPrompt')
+const seriesGenerateGlobalPromptModel = createFieldBinding('globalPrompt')
+
+function createUploadDirectoryBinding(menuKey) {
+  return computed({
+    get() {
+      return props.uploadDirectoryDrafts?.[menuKey] || ''
+    },
+    set(value) {
+      emitUploadDirectoryDraft(menuKey, value)
+    }
+  })
+}
+
+function createAssignmentPromptBinding(index) {
+  return computed({
+    get() {
+      return seriesAssignments.value[index]?.prompt || ''
+    },
+    set(value) {
+      updateAssignment(index, 'prompt', value)
+    }
+  })
+}
+
+function createAssignmentBatchPromptBinding(index, batchPromptIndex) {
+  return computed({
+    get() {
+      return seriesAssignments.value[index]?.batchPrompts?.[batchPromptIndex] || ''
+    },
+    set(value) {
+      updateAssignmentBatchPrompt(index, batchPromptIndex, value)
+    }
+  })
+}
+
+function createSeriesGeneratePromptBinding(index) {
+  return computed({
+    get() {
+      return seriesGeneratePromptAssignments.value[index]?.prompt || ''
+    },
+    set(value) {
+      updateSeriesGenerateAssignment(index, 'prompt', value)
+    }
+  })
+}
+
+function createSeriesGenerateBatchPromptBinding(index, batchPromptIndex) {
+  return computed({
+    get() {
+      return seriesGeneratePromptAssignments.value[index]?.batchPrompts?.[batchPromptIndex] || ''
+    },
+    set(value) {
+      updateSeriesGenerateBatchPrompt(index, batchPromptIndex, value)
+    }
+  })
+}
+
+const singleImageUploadDirectoryModel = createUploadDirectoryBinding('single-image')
+const singleDesignUploadDirectoryModel = createUploadDirectoryBinding('single-design')
+const seriesDesignUploadDirectoryModel = createUploadDirectoryBinding('series-design')
+const seriesGenerateUploadDirectoryModel = createUploadDirectoryBinding('series-generate')
 
 function emitUploadDirectoryDraft(menuKey, value) {
   emit('update-upload-directory-draft', {
@@ -206,6 +282,10 @@ function updateSeriesGenerateAssignment(index, field, value) {
   emitField('promptAssignments', nextAssignments)
 }
 
+function replaceSeriesGenerateAssignments(nextAssignments) {
+  emitField('promptAssignments', Array.isArray(nextAssignments) ? nextAssignments : [])
+}
+
 function updateSeriesGenerateBatchPrompt(index, batchPromptIndex, value) {
   const nextAssignments = seriesGeneratePromptAssignments.value.map((item, currentIndex) => {
     if (currentIndex !== index) {
@@ -246,8 +326,11 @@ function handleTemplateSelection(targetKind, index, templateId) {
         template: null
       }))
     } else if (targetKind === 'series-generate') {
-      updateSeriesGenerateAssignment(index, 'templateId', '')
-      updateSeriesGenerateAssignment(index, 'imageType', '')
+      replaceSeriesGenerateAssignments(applyTemplateSelectionToPromptAssignment({
+        assignments: seriesGeneratePromptAssignments.value,
+        index,
+        template: null
+      }))
     }
     return
   }
@@ -262,9 +345,11 @@ function handleTemplateSelection(targetKind, index, templateId) {
   }
 
   if (targetKind === 'series-generate') {
-    updateSeriesGenerateAssignment(index, 'templateId', template.id)
-    updateSeriesGenerateAssignment(index, 'imageType', template.name)
-    updateSeriesGenerateAssignment(index, 'prompt', template.prompt || '')
+    replaceSeriesGenerateAssignments(applyTemplateSelectionToPromptAssignment({
+      assignments: seriesGeneratePromptAssignments.value,
+      index,
+      template
+    }))
   }
 }
 </script>
@@ -281,10 +366,9 @@ function handleTemplateSelection(targetKind, index, templateId) {
       <label class="form-field">
         <span>任务名称</span>
         <input
-          :value="draftForm.taskName || ''"
+          v-model="taskNameModel"
           type="text"
           placeholder="输入任务名称，例如 XXA"
-          @input="emitField('taskName', $event.target.value)"
         />
       </label>
 
@@ -295,12 +379,11 @@ function handleTemplateSelection(targetKind, index, templateId) {
             <button class="icon-action-button" type="button" aria-label="上传测试图片" title="上传测试图片" @click="emit('select-single-image')">
               <img :src="uploadIconUrl" alt="" />
             </button>
-            <input
+            <FormTextControl
+              v-model="singleImageUploadDirectoryModel"
               class="upload-directory-input"
-              :value="getUploadDirectoryValue('single-image')"
               type="text"
               placeholder="默认打开目录"
-              @input="emitUploadDirectoryDraft('single-image', $event.target.value)"
             />
             <button class="icon-action-button upload-directory-save" type="button" aria-label="保存目录" title="保存目录" @click="saveUploadDirectory('single-image')">
               <img :src="saveDirectoryIconUrl" alt="" />
@@ -317,22 +400,22 @@ function handleTemplateSelection(targetKind, index, templateId) {
 
         <label class="form-field">
           <span>提示词输入区域</span>
-          <textarea
-            :value="draftForm.prompt"
+          <FormTextControl
+            v-model="singleImagePromptModel"
+            as="textarea"
             rows="6"
             placeholder="输入同一张图片的统一提示词"
-            @input="emitField('prompt', $event.target.value)"
-          ></textarea>
+          />
         </label>
 
         <label class="form-field">
           <span>补充说明</span>
-          <textarea
-            :value="draftForm.notes"
+          <FormTextControl
+            v-model="singleImageNotesModel"
+            as="textarea"
             rows="3"
             placeholder="输入对比测试的补充要求"
-            @input="emitField('notes', $event.target.value)"
-          ></textarea>
+          />
         </label>
 
         <section class="form-field">
@@ -385,12 +468,11 @@ function handleTemplateSelection(targetKind, index, templateId) {
             <button class="icon-action-button" type="button" aria-label="上传参考图片" title="上传参考图片" @click="emit('select-single-design-image')">
               <img :src="uploadIconUrl" alt="" />
             </button>
-            <input
+            <FormTextControl
+              v-model="singleDesignUploadDirectoryModel"
               class="upload-directory-input"
-              :value="getUploadDirectoryValue('single-design')"
               type="text"
               placeholder="默认打开目录"
-              @input="emitUploadDirectoryDraft('single-design', $event.target.value)"
             />
             <button class="icon-action-button upload-directory-save" type="button" aria-label="保存目录" title="保存目录" @click="saveUploadDirectory('single-design')">
               <img :src="saveDirectoryIconUrl" alt="" />
@@ -407,22 +489,22 @@ function handleTemplateSelection(targetKind, index, templateId) {
 
         <label class="form-field">
           <span>提示词输入区域</span>
-          <textarea
-            :value="draftForm.prompt"
+          <FormTextControl
+            v-model="singleDesignPromptModel"
+            as="textarea"
             rows="6"
             placeholder="输入单图设计提示词，不上传图片时将直接按文生图执行"
-            @input="emitField('prompt', $event.target.value)"
-          ></textarea>
+          />
         </label>
 
         <label class="form-field">
           <span>补充说明</span>
-          <textarea
-            :value="draftForm.notes"
+          <FormTextControl
+            v-model="singleDesignNotesModel"
+            as="textarea"
             rows="3"
             placeholder="输入风格、构图、材质表现等补充要求"
-            @input="emitField('notes', $event.target.value)"
-          ></textarea>
+          />
         </label>
 
         <label class="form-field">
@@ -451,12 +533,11 @@ function handleTemplateSelection(targetKind, index, templateId) {
             <button class="icon-action-button" type="button" aria-label="上传一套图片" title="上传一套图片" @click="emit('select-series-design-images')">
               <img :src="uploadIconUrl" alt="" />
             </button>
-            <input
+            <FormTextControl
+              v-model="seriesDesignUploadDirectoryModel"
               class="upload-directory-input"
-              :value="getUploadDirectoryValue('series-design')"
               type="text"
               placeholder="默认打开目录"
-              @input="emitUploadDirectoryDraft('series-design', $event.target.value)"
             />
             <button class="icon-action-button upload-directory-save" type="button" aria-label="保存目录" title="保存目录" @click="saveUploadDirectory('series-design')">
               <img :src="saveDirectoryIconUrl" alt="" />
@@ -466,12 +547,12 @@ function handleTemplateSelection(targetKind, index, templateId) {
 
         <label class="form-field">
           <span>全局主提示词</span>
-          <textarea
-            :value="draftForm.globalPrompt || ''"
+          <FormTextControl
+            v-model="seriesDesignGlobalPromptModel"
+            as="textarea"
             rows="4"
             placeholder="输入当前整套图片共用的全局主提示词"
-            @input="emitField('globalPrompt', $event.target.value)"
-          ></textarea>
+          />
         </label>
 
         <label class="form-field">
@@ -563,7 +644,6 @@ function handleTemplateSelection(targetKind, index, templateId) {
                       :value="assignment.templateId || ''"
                       @change="handleTemplateSelection('series-design', index, $event.target.value)"
                     >
-                      <option value="">请选择图片类型</option>
                       <option v-for="template in promptTemplateOptions" :key="template.id" :value="template.id">
                         {{ template.name }}
                       </option>
@@ -606,22 +686,24 @@ function handleTemplateSelection(targetKind, index, templateId) {
                   class="form-field assignment-card__prompt-field--flush"
                 >
                   <span>{{ `专属提示词${batchPromptIndex + 1}` }}</span>
-                  <textarea
-                    :value="batchPrompt"
+                  <FormTextControl
+                    :model-value="createAssignmentBatchPromptBinding(index, batchPromptIndex).value"
+                    as="textarea"
                     rows="3"
                     :placeholder="`输入当前图片第 ${batchPromptIndex + 1} 组的专属提示词`"
-                    @input="updateAssignmentBatchPrompt(index, batchPromptIndex, $event.target.value)"
-                  ></textarea>
+                    @update:model-value="createAssignmentBatchPromptBinding(index, batchPromptIndex).value = $event"
+                  />
                 </label>
               </template>
               <label v-else class="form-field assignment-card__prompt-field--flush">
                 <span>图片专属提示词</span>
-                <textarea
-                  :value="assignment.prompt"
+                <FormTextControl
+                  :model-value="createAssignmentPromptBinding(index).value"
+                  as="textarea"
                   rows="3"
                   placeholder="输入当前图片的专属提示词"
-                  @input="updateAssignment(index, 'prompt', $event.target.value)"
-                ></textarea>
+                  @update:model-value="createAssignmentPromptBinding(index).value = $event"
+                />
               </label>
             </div>
           </article>
@@ -642,12 +724,11 @@ function handleTemplateSelection(targetKind, index, templateId) {
             <button class="icon-action-button" type="button" aria-label="上传参考图" title="上传参考图" @click="emit('select-series-generate-image')">
               <img :src="uploadIconUrl" alt="" />
             </button>
-            <input
+            <FormTextControl
+              v-model="seriesGenerateUploadDirectoryModel"
               class="upload-directory-input"
-              :value="getUploadDirectoryValue('series-generate')"
               type="text"
               placeholder="默认打开目录"
-              @input="emitUploadDirectoryDraft('series-generate', $event.target.value)"
             />
             <button class="icon-action-button upload-directory-save" type="button" aria-label="保存目录" title="保存目录" @click="saveUploadDirectory('series-generate')">
               <img :src="saveDirectoryIconUrl" alt="" />
@@ -664,12 +745,12 @@ function handleTemplateSelection(targetKind, index, templateId) {
 
         <label class="form-field">
           <span>全局风格提示词</span>
-          <textarea
-            :value="draftForm.globalPrompt || ''"
+          <FormTextControl
+            v-model="seriesGenerateGlobalPromptModel"
+            as="textarea"
             rows="4"
             placeholder="输入当前批次共用的全局风格提示词"
-            @input="emitField('globalPrompt', $event.target.value)"
-          ></textarea>
+          />
         </label>
 
         <label class="form-field">
@@ -783,7 +864,6 @@ function handleTemplateSelection(targetKind, index, templateId) {
                         :value="assignment.templateId || ''"
                         @change="handleTemplateSelection('series-generate', index, $event.target.value)"
                       >
-                        <option value="">请选择图片类型</option>
                         <option v-for="template in promptTemplateOptions" :key="template.id" :value="template.id">
                           {{ template.name }}
                         </option>
@@ -797,21 +877,23 @@ function handleTemplateSelection(targetKind, index, templateId) {
                       class="form-field assignment-card__prompt-field--flush"
                     >
                       <span>{{ `专属提示词${batchPromptIndex + 1}` }}</span>
-                      <textarea
-                        :value="batchPrompt"
+                      <FormTextControl
+                        :model-value="createSeriesGenerateBatchPromptBinding(index, batchPromptIndex).value"
+                        as="textarea"
                         rows="3"
                         :placeholder="`输入第 ${index + 1} 张第 ${batchPromptIndex + 1} 组的专属提示词`"
-                        @input="updateSeriesGenerateBatchPrompt(index, batchPromptIndex, $event.target.value)"
-                      ></textarea>
+                        @update:model-value="createSeriesGenerateBatchPromptBinding(index, batchPromptIndex).value = $event"
+                      />
                     </label>
                   </template>
                   <label v-else class="form-field assignment-card__prompt-field--flush">
-                    <textarea
-                      :value="assignment.prompt"
+                    <FormTextControl
+                      :model-value="createSeriesGeneratePromptBinding(index).value"
+                      as="textarea"
                       rows="3"
                       :placeholder="`输入第 ${index + 1} 张要生成的具体画面要求`"
-                      @input="updateSeriesGenerateAssignment(index, 'prompt', $event.target.value)"
-                    ></textarea>
+                      @update:model-value="createSeriesGeneratePromptBinding(index).value = $event"
+                    />
                   </label>
                 </div>
               </div>

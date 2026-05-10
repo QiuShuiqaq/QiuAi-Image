@@ -61,6 +61,13 @@ const defaultBrowserActivationState = {
 
 const defaultBrowserPromptTemplates = [
   {
+    id: 'system-empty-image-type',
+    name: '无类型图片',
+    category: '按钮提示词',
+    prompt: '',
+    source: 'system-fixed'
+  },
+  {
     id: 'product-main',
     name: '商品主图',
     category: '按钮提示词',
@@ -105,6 +112,13 @@ const defaultBrowserPromptTemplates = [
 ]
 
 const defaultBrowserNegativePromptTemplates = [
+  {
+    id: 'system-empty-negative-prompt',
+    name: '无负向提示词',
+    category: '反向提示词',
+    prompt: '',
+    source: 'system-fixed'
+  },
   {
     id: 'negative-common',
     name: '电商通用',
@@ -414,7 +428,41 @@ function getBrowserActivationState() {
 }
 
 function getBrowserPromptTemplates() {
-  return readBrowserState(BROWSER_PROMPTS_KEY, defaultBrowserPromptTemplates)
+  const storedTemplates = readBrowserState(BROWSER_PROMPTS_KEY, defaultBrowserPromptTemplates)
+  const normalizedTemplates = mergeDefaultBrowserPromptTemplates(storedTemplates)
+  writeBrowserState(BROWSER_PROMPTS_KEY, normalizedTemplates)
+  return normalizedTemplates
+}
+
+function normalizeBrowserPromptTemplate(template = {}) {
+  return {
+    id: String(template.id || ''),
+    name: String(template.name || '').trim(),
+    category: String(template.category || '').trim(),
+    prompt: String(template.prompt || '').trim(),
+    source: template.source === 'system-fixed' ? 'system-fixed' : 'custom'
+  }
+}
+
+function mergeDefaultBrowserPromptTemplates(templates = []) {
+  const incomingTemplates = Array.isArray(templates)
+    ? templates.map((template) => normalizeBrowserPromptTemplate(template))
+    : []
+  const incomingTemplateMap = new Map(incomingTemplates.filter((template) => template.id).map((template) => [template.id, template]))
+  const customTemplates = incomingTemplates.filter((template) => {
+    return template.id && !defaultBrowserPromptTemplates.find((item) => item.id === template.id)
+  })
+
+  return [
+    ...defaultBrowserPromptTemplates.map((defaultTemplate) => {
+      const matchedTemplate = incomingTemplateMap.get(defaultTemplate.id)
+      return normalizeBrowserPromptTemplate({
+        ...defaultTemplate,
+        ...(matchedTemplate || {})
+      })
+    }),
+    ...customTemplates
+  ]
 }
 
 function normalizeBrowserNegativePromptTemplate(template = {}) {
@@ -491,7 +539,7 @@ function removeBrowserNegativePromptTemplate(payload = {}) {
 function saveBrowserPromptTemplate(payload = {}) {
   const currentTemplates = getBrowserPromptTemplates()
   const existingTemplate = currentTemplates.find((item) => item.id === payload.id)
-  const nextTemplate = {
+  const nextTemplate = normalizeBrowserPromptTemplate({
     id: existingTemplate?.source === 'system-fixed'
       ? existingTemplate.id
       : (payload.id || `browser-template-${Date.now()}`),
@@ -499,12 +547,12 @@ function saveBrowserPromptTemplate(payload = {}) {
     category: payload.category || existingTemplate?.category || '',
     prompt: payload.prompt || '',
     source: existingTemplate?.source === 'system-fixed' ? 'system-fixed' : 'custom'
-  }
+  })
   const nextTemplates = [
     ...currentTemplates.filter((item) => item.id !== nextTemplate.id),
     nextTemplate
   ]
-  writeBrowserState(BROWSER_PROMPTS_KEY, nextTemplates)
+  writeBrowserState(BROWSER_PROMPTS_KEY, mergeDefaultBrowserPromptTemplates(nextTemplates))
   return nextTemplate
 }
 
@@ -514,7 +562,7 @@ function removeBrowserPromptTemplate(payload = {}) {
   if (targetTemplate?.source === 'system-fixed') {
     return { ok: true }
   }
-  writeBrowserState(BROWSER_PROMPTS_KEY, currentTemplates.filter((item) => item.id !== payload.id))
+  writeBrowserState(BROWSER_PROMPTS_KEY, mergeDefaultBrowserPromptTemplates(currentTemplates.filter((item) => item.id !== payload.id)))
   return { ok: true }
 }
 

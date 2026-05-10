@@ -1,5 +1,8 @@
 <script setup>
-defineProps({
+import { computed } from 'vue'
+import FormTextControl from './FormTextControl.vue'
+
+const props = defineProps({
   visible: {
     type: Boolean,
     default: false
@@ -19,6 +22,15 @@ defineProps({
 })
 
 const emit = defineEmits(['update-password', 'confirm', 'close'])
+
+const passwordModel = computed({
+  get() {
+    return props.password || ''
+  },
+  set(value) {
+    emit('update-password', value)
+  }
+})
 </script>
 
 <template>
@@ -29,12 +41,11 @@ const emit = defineEmits(['update-password', 'confirm', 'close'])
         <span>请输入管理员密码</span>
       </header>
 
-      <input
-        :value="password"
+      <FormTextControl
+        v-model="passwordModel"
         class="admin-password-modal__input"
         type="password"
         placeholder="请输入管理员密码"
-        @input="emit('update-password', $event.target.value)"
       />
 
       <p v-if="feedbackMessage" class="admin-password-modal__feedback">

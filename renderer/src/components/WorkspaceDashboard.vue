@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import FormTextControl from './FormTextControl.vue'
 
 const props = defineProps({
   workspaceDashboard: {
@@ -192,6 +193,24 @@ function saveTotalCredits() {
   // 总积分保存事件预留：后续可在这里接入更细粒度的业务确认。
   emit('save-total-credits')
 }
+
+const totalCreditsModel = computed({
+  get() {
+    return props.totalCreditsValue || ''
+  },
+  set(value) {
+    updateTotalCreditsValue(value)
+  }
+})
+
+const creditAdjustmentModel = computed({
+  get() {
+    return props.creditAdjustmentValue || ''
+  },
+  set(value) {
+    updateCreditAdjustmentValue(value)
+  }
+})
 </script>
 
 <template>
@@ -372,12 +391,11 @@ function saveTotalCredits() {
                 <div class="dashboard-credit-adjust__action-group">
                   <label class="form-field">
                     <span>总积分</span>
-                    <input
-                      :value="totalCreditsValue"
+                    <FormTextControl
+                      v-model="totalCreditsModel"
                       type="number"
                       min="0"
                       placeholder="输入总积分"
-                      @input="updateTotalCreditsValue($event.target.value)"
                     />
                   </label>
 
@@ -394,11 +412,10 @@ function saveTotalCredits() {
                 <div class="dashboard-credit-adjust__action-group">
                   <label class="form-field">
                     <span>调整积分</span>
-                    <input
-                      :value="creditAdjustmentValue"
+                    <FormTextControl
+                      v-model="creditAdjustmentModel"
                       type="number"
                       placeholder="输入正数增加，负数扣减"
-                      @input="updateCreditAdjustmentValue($event.target.value)"
                     />
                   </label>
 

@@ -13,6 +13,7 @@ const MAX_SERIES_GENERATE_GROUP_SIZE = 500
 const REMOTE_RESULT_POLL_INTERVAL_MS = 2500
 const REMOTE_RESULT_TOTAL_TIMEOUT_MS = 30 * 60 * 1000
 const REMOTE_RESULT_STALL_TIMEOUT_MS = 10 * 60 * 1000
+const EMPTY_IMAGE_TYPE_TEMPLATE_ID = 'system-empty-image-type'
 const SERIES_GENERATE_IMAGE_TYPE_OPTIONS = ['商品主图', '详情图', '细节图', '尺寸图', '白底图', '颜色图']
 const SERIES_GENERATE_IMAGE_TYPE_CONFIG = {
   商品主图: {
@@ -286,6 +287,7 @@ function normalizeSeriesGeneratePromptAssignments(promptAssignments = [], genera
       id: currentAssignment.id || `series-generate-${index + 1}`,
       index: index + 1,
       prompt: String(currentAssignment.prompt || '').trim(),
+      templateId: String(currentAssignment.templateId || ''),
       imageType: normalizedImageType,
       differentialEnabled: currentAssignment.differentialEnabled === true,
       batchPrompts: normalizeDifferentialBatchPrompts(currentAssignment.batchPrompts, batchCount)
@@ -479,7 +481,13 @@ function validateStudioImageTask({ menuKey, draft }) {
       throw new Error('套图设计需要为每一张选中图片填写单独提示词')
     }
 
-    if (selectedAssignments.some((item) => !SERIES_GENERATE_IMAGE_TYPE_OPTIONS.includes(item.imageType))) {
+    if (selectedAssignments.some((item) => {
+      if (item.templateId === EMPTY_IMAGE_TYPE_TEMPLATE_ID && !String(item.imageType || '').trim()) {
+        return false
+      }
+
+      return !SERIES_GENERATE_IMAGE_TYPE_OPTIONS.includes(item.imageType)
+    })) {
       throw new Error('套图设计需要为每一张选中图片选择图片类型')
     }
 
@@ -506,7 +514,13 @@ function validateStudioImageTask({ menuKey, draft }) {
       throw new Error('套图生成需要为每一张图片填写单独提示词')
     }
 
-    if (promptAssignments.some((item) => !item.imageType)) {
+    if (promptAssignments.some((item) => {
+      if (item.templateId === EMPTY_IMAGE_TYPE_TEMPLATE_ID && !String(item.imageType || '').trim()) {
+        return false
+      }
+
+      return !item.imageType
+    })) {
       throw new Error('套图生成需要为每一张图片选择图片类型')
     }
   }

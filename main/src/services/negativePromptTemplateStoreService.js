@@ -4,6 +4,13 @@ const TEMPLATE_KEY = 'negativePromptTemplates'
 
 const defaultNegativePromptTemplates = [
   {
+    id: 'system-empty-negative-prompt',
+    name: '无负向提示词',
+    category: '反向提示词',
+    prompt: '',
+    source: 'system-fixed'
+  },
+  {
     id: 'negative-common',
     name: '电商通用',
     category: '反向提示词',

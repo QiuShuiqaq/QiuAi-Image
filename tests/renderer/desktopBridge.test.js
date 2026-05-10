@@ -96,6 +96,8 @@ describe('desktopBridge', () => {
     } = await import('../../renderer/src/services/desktopBridge.js')
 
     const defaults = await listNegativePromptTemplates()
+    expect(defaults[0]?.id).toBe('system-empty-negative-prompt')
+    expect(defaults[0]?.name).toBe('无负向提示词')
     expect(defaults.some((item) => item.name === '电商通用')).toBe(true)
     expect(defaults.some((item) => item.name === '电商模特')).toBe(true)
     expect(defaults.some((item) => item.name === '电商静物')).toBe(true)
@@ -118,6 +120,49 @@ describe('desktopBridge', () => {
     const afterRemove = await listNegativePromptTemplates()
     expect(afterRemove.some((item) => item.id === saved.id)).toBe(false)
     expect(storage.get('qiuai-browser-negative-prompts')).toContain('negative-common')
+  })
+
+  it('falls back to browser storage for prompt templates with the empty system template first', async () => {
+    const storage = new Map()
+    window.localStorage = {
+      getItem(key) {
+        return storage.has(key) ? storage.get(key) : null
+      },
+      setItem(key, value) {
+        storage.set(key, value)
+      }
+    }
+
+    const {
+      listPromptTemplates,
+      savePromptTemplate,
+      removePromptTemplate
+    } = await import('../../renderer/src/services/desktopBridge.js')
+
+    const defaults = await listPromptTemplates()
+    expect(defaults[0]?.id).toBe('system-empty-image-type')
+    expect(defaults[0]?.name).toBe('无类型图片')
+    expect(defaults[0]?.prompt).toBe('')
+    expect(defaults.some((item) => item.id === 'product-main')).toBe(true)
+
+    const saved = await savePromptTemplate({
+      name: '暖光补充',
+      category: '按钮提示词',
+      prompt: '统一暖光氛围'
+    })
+
+    expect(saved.name).toBe('暖光补充')
+
+    const afterSave = await listPromptTemplates()
+    expect(afterSave.some((item) => item.id === saved.id)).toBe(true)
+
+    await removePromptTemplate({
+      id: saved.id
+    })
+
+    const afterRemove = await listPromptTemplates()
+    expect(afterRemove.some((item) => item.id === saved.id)).toBe(false)
+    expect(storage.get('qiuai-browser-prompts')).toContain('system-empty-image-type')
   })
 
   it('invokes negative prompt template channels through the desktop bridge', async () => {

@@ -190,6 +190,47 @@ describe('studioImageGenerationService', () => {
     })).rejects.toThrow('套图设计需要为每一张选中图片选择图片类型')
   })
 
+  it('accepts the empty system template for series-design when templateId is set and imageType is empty', async () => {
+    const createDrawTaskDependency = vi.fn(async ({ prompt }) => ({
+      id: `remote-${createDrawTaskDependency.mock.calls.length}`,
+      prompt
+    }))
+    const service = createService({
+      createDrawTaskDependency
+    })
+
+    const result = await service.generateImageResults({
+      menuKey: 'series-design',
+      taskId: 'task-series-design-empty-template',
+      outputDirectory: 'C:/output',
+      draft: {
+        model: 'gpt-image-2',
+        globalPrompt: '统一高级电商视觉风格',
+        negativePrompt: '',
+        batchCount: 1,
+        size: '1:1',
+        imageAssignments: [
+          {
+            id: 'image-1',
+            name: 'look-1.png',
+            path: 'C:/input/look-1.png',
+            selected: true,
+            prompt: '保留空模板，不追加专属提示词',
+            templateId: 'system-empty-image-type',
+            imageType: '',
+            size: '1:1',
+            model: 'gpt-image-2',
+            tagNames: []
+          }
+        ]
+      }
+    })
+
+    expect(createDrawTaskDependency).toHaveBeenCalledTimes(1)
+    expect(createDrawTaskDependency.mock.calls[0][0].prompt).toBe('统一高级电商视觉风格\n保留空模板，不追加专属提示词')
+    expect(result.groupedResults).toHaveLength(1)
+  })
+
   it('builds series-design batches from typed prompt assignments and keeps full-group outputs ordered', async () => {
     const createDrawTaskDependency = vi.fn(async ({ prompt }) => ({
       id: `remote-${createDrawTaskDependency.mock.calls.length}`,

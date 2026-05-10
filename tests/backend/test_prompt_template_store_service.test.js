@@ -20,6 +20,9 @@ describe('promptTemplateStoreService', () => {
 
     const defaults = service.listTemplates()
     expect(defaults.length).toBeGreaterThan(0)
+    expect(defaults[0]?.id).toBe('system-empty-image-type')
+    expect(defaults[0]?.name).toBe('无类型图片')
+    expect(defaults[0]?.source).toBe('system-fixed')
     expect(defaults.some((item) => item.id === 'product-main')).toBe(true)
     expect(defaults.some((item) => item.source === 'system-fixed')).toBe(true)
     expect(defaults.some((item) => item.name === '商品主图')).toBe(true)
@@ -65,5 +68,29 @@ describe('promptTemplateStoreService', () => {
 
     await service.removeTemplate('product-main')
     expect(service.listTemplates().some((item) => item.id === 'product-main')).toBe(true)
+  })
+
+  it('lists the empty negative template as the first fixed system template', async () => {
+    const memory = new Map()
+    const store = {
+      get (key, fallbackValue) {
+        return memory.has(key) ? memory.get(key) : fallbackValue
+      },
+      set (key, value) {
+        memory.set(key, value)
+      }
+    }
+
+    const { createNegativePromptTemplateStoreService } = await import('../../main/src/services/negativePromptTemplateStoreService.js')
+    const service = createNegativePromptTemplateStoreService({
+      store,
+      createId: () => 'negative-template-new'
+    })
+
+    const defaults = service.listTemplates()
+    expect(defaults[0]?.id).toBe('system-empty-negative-prompt')
+    expect(defaults[0]?.name).toBe('无负向提示词')
+    expect(defaults[0]?.prompt).toBe('')
+    expect(defaults[0]?.source).toBe('system-fixed')
   })
 })

@@ -106,6 +106,8 @@ const TASK_SIZE_LIMITS = {
     block: 80
   }
 }
+const DEFAULT_EMPTY_PROMPT_TEMPLATE_ID = 'system-empty-image-type'
+const DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID = 'system-empty-negative-prompt'
 const EXPORT_FREE_SPACE_MULTIPLIER = 3
 const EXPORT_MIN_REQUIRED_BYTES = 1024
 const workspaceDashboardSections = [
@@ -174,6 +176,7 @@ function normalizeImageAssignments(assignments = [], batchCount = 1) {
           id: item.id || `series-design-${index + 1}`,
           selected: item.selected !== false,
           prompt: item.prompt || '',
+          templateId: item.templateId || '',
           imageType: item.imageType || '',
           size: item.size || '1:1',
           model: item.model || '',
@@ -198,6 +201,7 @@ function normalizePromptAssignments(promptAssignments = [], count = 1, batchCoun
       id: currentAssignment.id || `series-generate-${index + 1}`,
       index: index + 1,
       prompt: currentAssignment.prompt || '',
+      templateId: currentAssignment.templateId || '',
       imageType: currentAssignment.imageType || '',
       differentialEnabled: currentAssignment.differentialEnabled === true,
       batchPrompts: normalizeBatchPrompts(currentAssignment.batchPrompts, batchCount)
@@ -252,7 +256,7 @@ function normalizeDraftForMenu(menuKey, draft = {}) {
       model: nextModel,
       taskName: String(draft.taskName || defaultDraft.taskName || ''),
       globalPrompt: draft.globalPrompt || '',
-      negativeTemplateId: String(draft.negativeTemplateId || ''),
+      negativeTemplateId: String(draft.negativeTemplateId || defaultDraft.negativeTemplateId || DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID),
       negativePrompt: String(draft.negativePrompt || ''),
       legacyGlobalPrompt: draft.legacyGlobalPrompt || '',
       defaultAssignmentRatio: draft.defaultAssignmentRatio || defaultDraft.defaultAssignmentRatio || draft.size || '1:1',
@@ -273,7 +277,7 @@ function normalizeDraftForMenu(menuKey, draft = {}) {
       taskName: String(draft.taskName || defaultDraft.taskName || ''),
       sourceImage: normalizeImageAsset(draft.sourceImage) || defaultDraft.sourceImage,
       globalPrompt: draft.globalPrompt || '',
-      negativeTemplateId: String(draft.negativeTemplateId || ''),
+      negativeTemplateId: String(draft.negativeTemplateId || defaultDraft.negativeTemplateId || DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID),
       negativePrompt: String(draft.negativePrompt || ''),
       legacyGlobalPrompt: draft.legacyGlobalPrompt || '',
       generateCount,
@@ -373,7 +377,7 @@ function createDefaultDrafts() {
     },
     'series-design': {
       globalPrompt: '统一套图风格与商品调性',
-      negativeTemplateId: '',
+      negativeTemplateId: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID,
       negativePrompt: '',
       legacyGlobalPrompt: '',
       defaultAssignmentRatio: '1:1',
@@ -386,14 +390,19 @@ function createDefaultDrafts() {
     },
     'series-generate': {
       globalPrompt: '统一商品详情图整体风格',
-      negativeTemplateId: '',
+      negativeTemplateId: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID,
       negativePrompt: '',
       legacyGlobalPrompt: '',
       model: resolveDefaultModelForMenu('series-generate'),
       taskName: '',
       sourceImage: null,
-      generateCount: 20,
-      promptAssignments: normalizePromptAssignments([], 20),
+      generateCount: 1,
+      promptAssignments: normalizePromptAssignments([
+        {
+          templateId: DEFAULT_EMPTY_PROMPT_TEMPLATE_ID,
+          imageType: ''
+        }
+      ], 1),
       batchCount: 1,
       size: '1:1'
     },

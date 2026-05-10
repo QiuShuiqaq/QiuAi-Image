@@ -1,5 +1,6 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import FormTextControl from './FormTextControl.vue'
 
 const props = defineProps({
   fixedPromptTemplates: {
@@ -26,25 +27,11 @@ const emit = defineEmits([
   'save-negative-template',
   'remove-negative-template'
 ])
-const fixedTemplateDrafts = ref([])
-const negativePromptDraft = reactive({
-  id: '',
-  name: '',
-  category: '反向提示词',
-  prompt: '',
-  source: 'custom'
-})
 
-// 默认标签分类：画风风格 / 构图镜头 / 光影色调 / 材质质感 / 画质参数
-// 默认标签：写实 / 二次元 / 电影感镜头 / 丁达尔光 / 金属磨砂 / 超高清 等
-
-const customDraft = reactive({
-  id: '',
-  name: '',
-  category: '自定义提示词',
-  prompt: '',
-  source: 'custom'
-})
+const expandedPositiveTemplateId = ref('')
+const expandedNegativeTemplateId = ref('')
+const positiveDraftMap = ref({})
+const negativeDraftMap = ref({})
 
 const bannedRiskHints = [
   '和原图一致',
@@ -63,8 +50,6 @@ const warningRiskHints = [
   '背景不动'
 ]
 
-const defaultNegativeTemplateHints = ['电商通用', '电商模特', '电商静物']
-const negativeTemplatePlaceholder = defaultNegativeTemplateHints.join(' / ')
 const promptFormatGuide = [
   {
     scene: '头像、Q 版人物、表情包',
@@ -93,144 +78,293 @@ const promptFormatGuide = [
   }
 ]
 
+function normalizeTemplate(template = {}, fallbackCategory = '自定义提示词', fallbackSource = 'custom') {
+  return {
+    id: String(template.id || ''),
+    name: String(template.name || ''),
+    category: String(template.category || fallbackCategory),
+    prompt: String(template.prompt || ''),
+    source: template.source === 'system-fixed' ? 'system-fixed' : fallbackSource,
+    isNew: template.isNew === true
+  }
+}
+
 const allTemplateDrafts = computed(() => {
-  const customTemplateMap = new Map((props.customPromptTemplates || []).map((template) => [template.id, template]))
-
-  return fixedTemplateDrafts.value
-    .concat((props.customPromptTemplates || []).map((template) => ({
-      id: template.id,
-      name: template.name || '',
-      category: template.category || '自定义提示词',
-      prompt: template.prompt || '',
-      source: 'custom'
-    })))
-    .map((template) => {
-      if (template.source === 'custom' && customTemplateMap.has(template.id)) {
-        const customTemplate = customTemplateMap.get(template.id)
-        return {
-          id: customTemplate.id,
-          name: customTemplate.name || '',
-          category: customTemplate.category || '自定义提示词',
-          prompt: customTemplate.prompt || '',
-          source: 'custom'
-        }
-      }
-
-      return template
-    })
+  return [
+    ...(props.fixedPromptTemplates || []).map((template) => normalizeTemplate(template, '系统提示词', 'system-fixed')),
+    ...(props.customPromptTemplates || []).map((template) => normalizeTemplate(template, '自定义提示词', 'custom'))
+  ]
 })
 
 const sortedNegativePromptTemplates = computed(() => {
   return [
-    ...(props.fixedNegativePromptTemplates || []).map((template) => ({
-      ...template,
-      source: 'system-fixed'
-    })),
-    ...(props.customNegativePromptTemplates || []).map((template) => ({
-      ...template,
-      source: 'custom'
-    }))
+    ...(props.fixedNegativePromptTemplates || []).map((template) => normalizeTemplate(template, '反向提示词', 'system-fixed')),
+    ...(props.customNegativePromptTemplates || []).map((template) => normalizeTemplate(template, '反向提示词', 'custom'))
   ]
 })
 
-watch(
-  () => props.fixedPromptTemplates,
-  (templates = []) => {
-    fixedTemplateDrafts.value = templates.map((template) => ({
-      id: template.id,
-      name: template.name || '',
-      category: template.category || '系统提示词',
-      prompt: template.prompt || '',
-      source: 'system-fixed'
-    }))
-  },
-  {
-    immediate: true,
-    deep: true
-  }
-)
+function syncDraftMap(templates, previousDrafts = {}, fallbackCategory = '自定义提示词', fallbackSource = 'custom') {
+  const nextDrafts = {}
 
-function buildFixedDraft(template = {}) {
-  return {
-    ...template,
-    source: template.source === 'custom' ? 'custom' : 'system-fixed'
-  }
-}
+  templates.forEach((template) => {
+    const normalizedTemplate = normalizeTemplate(template, fallbackCategory, fallbackSource)
+    const templateId = normalizedTemplate.id
+    const previousDraft = previousDrafts[templateId]
 
-function applyPositiveTemplate(template = {}) {
-  customDraft.id = template.id || ''
-  customDraft.name = template.name || ''
-  customDraft.category = template.category || '正向提示词'
-  customDraft.prompt = template.prompt || ''
-  customDraft.source = template.source === 'system-fixed' ? 'system-fixed' : 'custom'
-}
+    if (previousDraft?.isNew === true) {
+      nextDrafts[templateId] = previousDraft
+      return
+    }
 
-function resetCustomDraft() {
-  applyPositiveTemplate({
-    category: '自定义提示词',
-    source: 'custom'
+    nextDrafts[templateId] = {
+      ...normalizedTemplate,
+      ...(previousDraft ? {
+        name: previousDraft.name,
+        prompt: previousDraft.prompt
+      } : {})
+    }
   })
+
+  Object.values(previousDrafts).forEach((draft) => {
+    if (draft?.isNew === true && draft.id) {
+      nextDrafts[draft.id] = draft
+    }
+  })
+
+  return nextDrafts
 }
 
-function saveFixedTemplate(template) {
-  emit('save-template', buildFixedDraft(template))
+watch(allTemplateDrafts, (templates) => {
+  positiveDraftMap.value = syncDraftMap(templates, positiveDraftMap.value, '自定义提示词', 'custom')
+}, {
+  immediate: true,
+  deep: true
+})
+
+watch(sortedNegativePromptTemplates, (templates) => {
+  negativeDraftMap.value = syncDraftMap(templates, negativeDraftMap.value, '反向提示词', 'custom')
+}, {
+  immediate: true,
+  deep: true
+})
+
+function buildDraftId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function savePositiveTemplate() {
-  if (customDraft.source === 'system-fixed') {
-    saveFixedTemplate(customDraft)
+function ensurePositiveDraft(template = {}) {
+  const normalizedTemplate = normalizeTemplate(template, '自定义提示词', template.source === 'system-fixed' ? 'system-fixed' : 'custom')
+  const templateId = normalizedTemplate.id
+  if (!templateId) {
+    return null
+  }
+
+  if (!positiveDraftMap.value[templateId]) {
+    positiveDraftMap.value = {
+      ...positiveDraftMap.value,
+      [templateId]: normalizedTemplate
+    }
+  }
+
+  return positiveDraftMap.value[templateId]
+}
+
+function ensureNegativeDraft(template = {}) {
+  const normalizedTemplate = normalizeTemplate(template, '反向提示词', template.source === 'system-fixed' ? 'system-fixed' : 'custom')
+  const templateId = normalizedTemplate.id
+  if (!templateId) {
+    return null
+  }
+
+  if (!negativeDraftMap.value[templateId]) {
+    negativeDraftMap.value = {
+      ...negativeDraftMap.value,
+      [templateId]: normalizedTemplate
+    }
+  }
+
+  return negativeDraftMap.value[templateId]
+}
+
+function togglePositiveTemplate(template) {
+  const draft = ensurePositiveDraft(template)
+  if (!draft) {
+    return
+  }
+
+  expandedPositiveTemplateId.value = expandedPositiveTemplateId.value === draft.id ? '' : draft.id
+}
+
+function toggleNegativeTemplate(template) {
+  const draft = ensureNegativeDraft(template)
+  if (!draft) {
+    return
+  }
+
+  expandedNegativeTemplateId.value = expandedNegativeTemplateId.value === draft.id ? '' : draft.id
+}
+
+function updatePositiveDraftField(templateId, field, value) {
+  const currentDraft = positiveDraftMap.value[templateId]
+  if (!currentDraft) {
+    return
+  }
+
+  positiveDraftMap.value = {
+    ...positiveDraftMap.value,
+    [templateId]: {
+      ...currentDraft,
+      [field]: value
+    }
+  }
+}
+
+function updateNegativeDraftField(templateId, field, value) {
+  const currentDraft = negativeDraftMap.value[templateId]
+  if (!currentDraft) {
+    return
+  }
+
+  negativeDraftMap.value = {
+    ...negativeDraftMap.value,
+    [templateId]: {
+      ...currentDraft,
+      [field]: value
+    }
+  }
+}
+
+function addPositiveTemplate() {
+  const templateId = buildDraftId('positive-template')
+  positiveDraftMap.value = {
+    ...positiveDraftMap.value,
+    [templateId]: {
+      id: templateId,
+      name: '',
+      category: '自定义提示词',
+      prompt: '',
+      source: 'custom',
+      isNew: true
+    }
+  }
+  expandedPositiveTemplateId.value = templateId
+}
+
+function addNegativeTemplate() {
+  const templateId = buildDraftId('negative-template')
+  negativeDraftMap.value = {
+    ...negativeDraftMap.value,
+    [templateId]: {
+      id: templateId,
+      name: '',
+      category: '反向提示词',
+      prompt: '',
+      source: 'custom',
+      isNew: true
+    }
+  }
+  expandedNegativeTemplateId.value = templateId
+}
+
+function savePositiveTemplate(templateId) {
+  const template = positiveDraftMap.value[templateId]
+  if (!template) {
     return
   }
 
   emit('save-template', {
-    id: customDraft.id || undefined,
-    name: customDraft.name,
-    category: customDraft.category,
-    prompt: customDraft.prompt,
-    source: 'custom'
+    id: template.isNew ? undefined : template.id,
+    name: template.name,
+    category: template.category,
+    prompt: template.prompt,
+    source: template.source === 'system-fixed' ? 'system-fixed' : 'custom'
   })
-  resetCustomDraft()
-}
 
-function removeCustomTemplate(templateId) {
-  emit('remove-template', templateId)
-  if (customDraft.id === templateId) {
-    resetCustomDraft()
+  if (template.isNew) {
+    const nextDraftMap = { ...positiveDraftMap.value }
+    delete nextDraftMap[templateId]
+    positiveDraftMap.value = nextDraftMap
+    expandedPositiveTemplateId.value = ''
   }
 }
 
-function applyNegativeTemplate(template = {}) {
-  negativePromptDraft.id = template.id || ''
-  negativePromptDraft.name = template.name || ''
-  negativePromptDraft.category = template.category || '反向提示词'
-  negativePromptDraft.prompt = template.prompt || ''
-  negativePromptDraft.source = template.source === 'system-fixed' ? 'system-fixed' : 'custom'
-}
+function saveNegativePromptTemplate(templateId) {
+  const template = negativeDraftMap.value[templateId]
+  if (!template) {
+    return
+  }
 
-function resetNegativePromptDraft() {
-  applyNegativeTemplate({})
-}
-
-function saveNegativePromptTemplate() {
   emit('save-negative-template', {
-    id: negativePromptDraft.id || undefined,
-    name: negativePromptDraft.name,
-    category: negativePromptDraft.category,
-    prompt: negativePromptDraft.prompt,
-    source: negativePromptDraft.source === 'system-fixed' ? 'system-fixed' : 'custom'
+    id: template.isNew ? undefined : template.id,
+    name: template.name,
+    category: template.category,
+    prompt: template.prompt,
+    source: template.source === 'system-fixed' ? 'system-fixed' : 'custom'
   })
 
-  if (negativePromptDraft.source !== 'system-fixed') {
-    resetNegativePromptDraft()
+  if (template.isNew) {
+    const nextDraftMap = { ...negativeDraftMap.value }
+    delete nextDraftMap[templateId]
+    negativeDraftMap.value = nextDraftMap
+    expandedNegativeTemplateId.value = ''
   }
+}
+
+function removePositiveTemplate(templateId) {
+  const template = positiveDraftMap.value[templateId]
+  if (!template) {
+    return
+  }
+
+  if (template.isNew) {
+    const nextDraftMap = { ...positiveDraftMap.value }
+    delete nextDraftMap[templateId]
+    positiveDraftMap.value = nextDraftMap
+    if (expandedPositiveTemplateId.value === templateId) {
+      expandedPositiveTemplateId.value = ''
+    }
+    return
+  }
+
+  emit('remove-template', templateId)
 }
 
 function removeNegativePromptTemplate(templateId) {
-  emit('remove-negative-template', templateId)
-  if (negativePromptDraft.id === templateId) {
-    resetNegativePromptDraft()
+  const template = negativeDraftMap.value[templateId]
+  if (!template) {
+    return
   }
+
+  if (template.isNew) {
+    const nextDraftMap = { ...negativeDraftMap.value }
+    delete nextDraftMap[templateId]
+    negativeDraftMap.value = nextDraftMap
+    if (expandedNegativeTemplateId.value === templateId) {
+      expandedNegativeTemplateId.value = ''
+    }
+    return
+  }
+
+  emit('remove-negative-template', templateId)
 }
+
+const renderedPositiveTemplates = computed(() => {
+  const templateIds = new Set(allTemplateDrafts.value.map((template) => template.id))
+  const persistedTemplates = allTemplateDrafts.value.map((template) => {
+    return positiveDraftMap.value[template.id] || template
+  })
+  const newTemplates = Object.values(positiveDraftMap.value).filter((draft) => draft.isNew === true && !templateIds.has(draft.id))
+  return [...persistedTemplates, ...newTemplates]
+})
+
+const renderedNegativeTemplates = computed(() => {
+  const templateIds = new Set(sortedNegativePromptTemplates.value.map((template) => template.id))
+  const persistedTemplates = sortedNegativePromptTemplates.value.map((template) => {
+    return negativeDraftMap.value[template.id] || template
+  })
+  const newTemplates = Object.values(negativeDraftMap.value).filter((draft) => draft.isNew === true && !templateIds.has(draft.id))
+  return [...persistedTemplates, ...newTemplates]
+})
 </script>
 
 <template>
@@ -253,44 +387,62 @@ function removeNegativePromptTemplate(templateId) {
           </div>
 
           <div class="prompt-library-column__body prompt-library-column__body--stacked scrollbar-hidden prompt-library-column__body--full">
-            <div class="prompt-template-editor">
-              <div class="prompt-template-editor__header">
-                <span>编辑正向模板</span>
-                <button class="secondary-action secondary-action--compact" type="button" @click="resetCustomDraft">新建正向模板</button>
-              </div>
-              <label class="form-field">
-                <span>模板名称</span>
-                <input v-model="customDraft.name" type="text" placeholder="输入模板名称" />
-              </label>
-              <label class="form-field">
-                <span>正向提示词</span>
-                <textarea v-model="customDraft.prompt" rows="6" placeholder="输入正向提示词"></textarea>
-              </label>
-              <div class="prompt-template-editor__actions">
-                <button class="primary-action" type="button" @click="savePositiveTemplate">保存正向模板</button>
+            <div class="prompt-library-list">
+              <article
+                v-for="template in renderedPositiveTemplates"
+                :key="template.id"
+                class="prompt-template-card"
+              >
                 <button
-                  class="secondary-action"
+                  class="prompt-template-card__header prompt-template-card__toggle"
                   type="button"
-                  :disabled="!customDraft.id || customDraft.source === 'system-fixed'"
-                  @click="removeCustomTemplate(customDraft.id)"
+                  @click="togglePositiveTemplate(template)"
                 >
-                  删除正向模板
+                  <div class="prompt-template-card__meta">
+                    <strong>{{ template.name || '未命名模板' }}</strong>
+                    <span>{{ template.source === 'system-fixed' ? '系统模板' : '自定义模板' }}</span>
+                  </div>
+                  <span class="prompt-template-card__indicator">{{ expandedPositiveTemplateId === template.id ? '收起' : '展开' }}</span>
                 </button>
-              </div>
+
+                <div v-if="expandedPositiveTemplateId === template.id" class="prompt-template-card__content">
+                  <label class="form-field">
+                    <span>模板名称</span>
+                    <FormTextControl
+                      :model-value="template.name"
+                      type="text"
+                      placeholder="输入模板名称"
+                      @update:model-value="updatePositiveDraftField(template.id, 'name', $event)"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>正向提示词</span>
+                    <FormTextControl
+                      :model-value="template.prompt"
+                      as="textarea"
+                      rows="6"
+                      placeholder="输入正向提示词"
+                      @update:model-value="updatePositiveDraftField(template.id, 'prompt', $event)"
+                    />
+                  </label>
+                  <div class="prompt-template-card__actions">
+                    <button class="primary-action" type="button" @click="savePositiveTemplate(template.id)">保存正向模板</button>
+                    <button
+                      class="secondary-action"
+                      type="button"
+                      :disabled="template.source === 'system-fixed' && template.isNew !== true"
+                      @click="removePositiveTemplate(template.id)"
+                    >
+                      删除正向模板
+                    </button>
+                  </div>
+                </div>
+              </article>
             </div>
 
-            <div class="prompt-library-list">
-              <button
-                v-for="template in allTemplateDrafts"
-                :key="template.id"
-                class="prompt-template-row prompt-template-row--button"
-                type="button"
-                @click="applyPositiveTemplate(template)"
-              >
-                <strong>{{ template.name }}</strong>
-                <span>{{ template.source === 'system-fixed' ? '系统模板' : '自定义模板' }}</span>
-              </button>
-            </div>
+            <button class="secondary-action prompt-template-add-button" type="button" @click="addPositiveTemplate">
+              新增提示模板
+            </button>
           </div>
         </article>
 
@@ -303,37 +455,61 @@ function removeNegativePromptTemplate(templateId) {
           </div>
 
           <div class="prompt-library-column__body scrollbar-hidden prompt-library-column__body--stacked prompt-library-column__body--full">
-            <div class="prompt-template-editor">
-              <div class="prompt-template-editor__header">
-                <span>编辑反向模板</span>
-                <button class="secondary-action secondary-action--compact" type="button" @click="resetNegativePromptDraft">新建反向模板</button>
-              </div>
-              <label class="form-field">
-                <span>模板名称</span>
-                <input v-model="negativePromptDraft.name" type="text" :placeholder="negativeTemplatePlaceholder" />
-              </label>
-              <label class="form-field">
-                <span>反向提示词</span>
-                <textarea v-model="negativePromptDraft.prompt" rows="6"></textarea>
-              </label>
-              <div class="prompt-template-editor__actions">
-                <button class="primary-action" type="button" @click="saveNegativePromptTemplate">保存反向提示词模板</button>
-                <button class="secondary-action" type="button" :disabled="!negativePromptDraft.id || negativePromptDraft.source === 'system-fixed'" @click="removeNegativePromptTemplate(negativePromptDraft.id)">删除反向提示词模板</button>
-              </div>
+            <div class="prompt-library-list">
+              <article
+                v-for="template in renderedNegativeTemplates"
+                :key="template.id"
+                class="prompt-template-card"
+              >
+                <button
+                  class="prompt-template-card__header prompt-template-card__toggle"
+                  type="button"
+                  @click="toggleNegativeTemplate(template)"
+                >
+                  <div class="prompt-template-card__meta">
+                    <strong>{{ template.name || '未命名模板' }}</strong>
+                    <span>{{ template.category || '反向提示词' }}</span>
+                  </div>
+                  <span class="prompt-template-card__indicator">{{ expandedNegativeTemplateId === template.id ? '收起' : '展开' }}</span>
+                </button>
+
+                <div v-if="expandedNegativeTemplateId === template.id" class="prompt-template-card__content">
+                  <label class="form-field">
+                    <span>模板名称</span>
+                    <FormTextControl
+                      :model-value="template.name"
+                      type="text"
+                      placeholder="电商通用 / 电商模特 / 电商静物"
+                      @update:model-value="updateNegativeDraftField(template.id, 'name', $event)"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>反向提示词</span>
+                    <FormTextControl
+                      :model-value="template.prompt"
+                      as="textarea"
+                      rows="6"
+                      @update:model-value="updateNegativeDraftField(template.id, 'prompt', $event)"
+                    />
+                  </label>
+                  <div class="prompt-template-card__actions">
+                    <button class="primary-action" type="button" @click="saveNegativePromptTemplate(template.id)">保存反向提示词模板</button>
+                    <button
+                      class="secondary-action"
+                      type="button"
+                      :disabled="template.source === 'system-fixed' && template.isNew !== true"
+                      @click="removeNegativePromptTemplate(template.id)"
+                    >
+                      删除反向提示词模板
+                    </button>
+                  </div>
+                </div>
+              </article>
             </div>
 
-            <div class="prompt-library-list">
-              <button
-                v-for="template in sortedNegativePromptTemplates"
-                :key="template.id"
-                class="prompt-template-row prompt-template-row--button"
-                type="button"
-                @click="applyNegativeTemplate(template)"
-              >
-                <strong>{{ template.name }}</strong>
-                <span>{{ template.category || '反向提示词' }}</span>
-              </button>
-            </div>
+            <button class="secondary-action prompt-template-add-button" type="button" @click="addNegativeTemplate">
+              新增提示模板
+            </button>
           </div>
         </article>
 
