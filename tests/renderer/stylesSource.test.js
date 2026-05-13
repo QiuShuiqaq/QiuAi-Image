@@ -116,6 +116,7 @@ describe('styles source', () => {
     expect(source).toContain('.section-title--centered')
     expect(source).toContain('text-align: center;')
     expect(source).toContain('.recharge-price-card__ribbon')
+    expect(source).toContain('.recharge-price-card__validity')
     expect(source).toContain('filter: brightness(0.72);')
     expect(source).toContain('font-size: 20px !important;')
     expect(source).toContain('transform: rotate(35deg);')

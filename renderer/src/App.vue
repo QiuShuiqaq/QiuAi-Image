@@ -75,12 +75,12 @@ const modelPricingCatalog = [
 ]
 
 const rechargePricingCatalog = [
-  { price: '30¥', credits: '100000积分', bonus: '' },
-  { price: '60¥', credits: '250000积分', bonus: '送25%' },
-  { price: '150¥', credits: '750000积分', bonus: '送50%' },
-  { price: '300¥', credits: '1600000积分', bonus: '送60%' },
-  { price: '1500¥', credits: '9000000积分', bonus: '送80%' },
-  { price: '3000¥', credits: '20000000积分', bonus: '送100%' }
+  { price: '30¥', credits: '100000积分', validity: '一周', bonus: '' },
+  { price: '60¥', credits: '250000积分', validity: '一月', bonus: '送25%' },
+  { price: '150¥', credits: '750000积分', validity: '一季', bonus: '送50%' },
+  { price: '300¥', credits: '1600000积分', validity: '半年', bonus: '送60%' },
+  { price: '1500¥', credits: '9000000积分', validity: '一年', bonus: '送80%' },
+  { price: '3000¥', credits: '20000000积分', validity: '三年', bonus: '送100%' }
 ]
 
 const batchOptions = [
@@ -163,8 +163,10 @@ const TASK_SCALE_LIMITS = {
 }
 
 const DEFAULT_EMPTY_PROMPT_TEMPLATE_ID = 'system-empty-image-type'
+const DEFAULT_EMPTY_PROMPT_TEMPLATE_NAME = '无类型图片'
 
 const DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID = 'system-empty-negative-prompt'
+const DEFAULT_EMPTY_NEGATIVE_TEMPLATE_NAME = '无负向提示词'
 
 function resolveDefaultModelForMenu() {
   return imageModelOptions[0].value
@@ -386,6 +388,44 @@ function createDefaultActivationState() {
     activatedAt: '',
     message: ''
   }
+}
+
+function ensureEmptyPromptTemplate(templates = []) {
+  const sourceTemplates = Array.isArray(templates) ? templates : []
+  const hasDefaultTemplate = sourceTemplates.some((template) => template?.id === DEFAULT_EMPTY_PROMPT_TEMPLATE_ID)
+  if (hasDefaultTemplate) {
+    return sourceTemplates
+  }
+
+  return [
+    {
+      id: DEFAULT_EMPTY_PROMPT_TEMPLATE_ID,
+      name: DEFAULT_EMPTY_PROMPT_TEMPLATE_NAME,
+      category: '系统提示词',
+      prompt: '',
+      source: 'system-fixed'
+    },
+    ...sourceTemplates
+  ]
+}
+
+function ensureEmptyNegativePromptTemplate(templates = []) {
+  const sourceTemplates = Array.isArray(templates) ? templates : []
+  const hasDefaultTemplate = sourceTemplates.some((template) => template?.id === DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID)
+  if (hasDefaultTemplate) {
+    return sourceTemplates
+  }
+
+  return [
+    {
+      id: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_ID,
+      name: DEFAULT_EMPTY_NEGATIVE_TEMPLATE_NAME,
+      category: '反向提示词',
+      prompt: '',
+      source: 'system-fixed'
+    },
+    ...sourceTemplates
+  ]
 }
 
 function normalizeStoredDraft(menuKey, storedDraft = {}) {
@@ -853,7 +893,7 @@ async function loadActivationState({ silent = false } = {}) {
 
 async function loadPromptTemplateState() {
   try {
-    promptTemplates.value = await listPromptTemplates()
+    promptTemplates.value = ensureEmptyPromptTemplate(await listPromptTemplates())
   } catch (error) {
     console.error('Failed to load prompt templates', error)
   }
@@ -861,7 +901,7 @@ async function loadPromptTemplateState() {
 
 async function loadNegativePromptTemplateState() {
   try {
-    negativePromptTemplates.value = await listNegativePromptTemplates()
+    negativePromptTemplates.value = ensureEmptyNegativePromptTemplate(await listNegativePromptTemplates())
   } catch (error) {
     console.error('Failed to load negative prompt templates', error)
   }

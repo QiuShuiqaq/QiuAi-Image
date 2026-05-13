@@ -2669,6 +2669,11 @@ textarea {
   line-height: 1.5;
 }
 
+.recharge-price-card__validity {
+  color: color-mix(in srgb, var(--text-sub) 84%, #f4e8b2);
+  font-size: 12px;
+}
+
 .recharge-price-card__ribbon {
   position: absolute;
   top: 18px;

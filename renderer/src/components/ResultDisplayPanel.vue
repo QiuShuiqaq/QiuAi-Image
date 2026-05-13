@@ -171,6 +171,7 @@ function resolvePromptFinal(value) {
             <span v-if="item.bonus" class="recharge-price-card__ribbon">{{ item.bonus }}</span>
             <strong>{{ item.price }}</strong>
             <span>{{ item.credits }}</span>
+            <span class="recharge-price-card__validity">积分有效时间：{{ item.validity }}</span>
           </article>
         </div>
 
